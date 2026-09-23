@@ -910,24 +910,58 @@ function updateDropdownHighlight() { document.querySelectorAll('#adres-dropdown 
 // Gebruikt Photon (komoot) i.p.v. Nominatim: geeft veel betrouwbaarder losse
 // huisnummers terug in plaats van dezelfde straat meerdere keren.
 async function geocodeZoek(query, limit=5) {
-  const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=${limit}&lang=nl&lat=52.1&lon=5.3`;
-  const r = await fetch(url);
-  const data = await r.json();
-  const resultaten = (data.features||[])
-    .filter(f => (f.properties||{}).countrycode === 'NL')
-    .map(f => {
-      const p = f.properties||{};
-      const [lng,lat] = f.geometry.coordinates;
-      const straat = p.street || p.name || '';
-      const huisnr = p.housenumber ? ' '+p.housenumber : '';
-      const plaats = p.city || p.town || p.village || p.county || '';
-      const label = [straat+huisnr, plaats].filter(Boolean).join(', ');
-      return label ? { label, lat, lng, heeftHuisnummer: !!p.housenumber } : null;
-    })
-    .filter(Boolean);
-  resultaten.sort((a,b) => (b.heeftHuisnummer?1:0) - (a.heeftHuisnummer?1:0));
+  let resultaten = [];
+  try { resultaten = await geocodePhoton(query, limit); } catch(e) { resultaten = []; }
+  if (!resultaten.length) {
+    try { resultaten = await geocodeNominatim(query, limit); } catch(e) { resultaten = []; }
+  }
+  return resultaten;
+}
+
+function dedupeGeoResultaten(resultaten) {
   const gezien = new Set();
   return resultaten.filter(x => { if (gezien.has(x.label)) return false; gezien.add(x.label); return true; });
+}
+
+async function geocodePhoton(query, limit) {
+  const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=${limit*3}&lang=nl&lat=52.1&lon=5.3`;
+  const r = await fetch(url);
+  if (!r.ok) return [];
+  const data = await r.json();
+  let features = data.features || [];
+  // Voorkeur voor NL-resultaten, maar alleen filteren als dat niet alles wegveegt
+  const nlFeatures = features.filter(f => (f.properties||{}).countrycode === 'NL');
+  if (nlFeatures.length) features = nlFeatures;
+  const resultaten = features.map(f => {
+    const p = f.properties||{};
+    const [lng,lat] = f.geometry.coordinates;
+    const straat = p.street || p.name || '';
+    const huisnr = p.housenumber ? ' '+p.housenumber : '';
+    const plaats = p.city || p.town || p.village || p.county || '';
+    const label = [straat+huisnr, plaats].filter(Boolean).join(', ');
+    return label ? { label, lat, lng, heeftHuisnummer: !!p.housenumber } : null;
+  }).filter(Boolean);
+  resultaten.sort((a,b) => (b.heeftHuisnummer?1:0) - (a.heeftHuisnummer?1:0));
+  return dedupeGeoResultaten(resultaten).slice(0, limit);
+}
+
+async function geocodeNominatim(query, limit) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=${limit*2}&countrycodes=nl&addressdetails=1`;
+  const r = await fetch(url, { headers:{ 'Accept-Language':'nl' } });
+  if (!r.ok) return [];
+  const data = await r.json();
+  const resultaten = (data||[]).map(item => {
+    const a = item.address||{};
+    const straat = a.road || '';
+    const huisnr = a.house_number ? ' '+a.house_number : '';
+    const plaats = a.city || a.town || a.village || '';
+    const label = straat
+      ? [straat+huisnr, plaats].filter(Boolean).join(', ')
+      : (item.display_name||'').split(',').slice(0,3).join(',').trim();
+    return label ? { label, lat:+item.lat, lng:+item.lon, heeftHuisnummer: !!a.house_number } : null;
+  }).filter(Boolean);
+  resultaten.sort((a,b) => (b.heeftHuisnummer?1:0) - (a.heeftHuisnummer?1:0));
+  return dedupeGeoResultaten(resultaten).slice(0, limit);
 }
 
 async function geocodeAutocomplete(adres) {
