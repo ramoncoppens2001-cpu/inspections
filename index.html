@@ -128,7 +128,7 @@ html,body{
 .ov-list::-webkit-scrollbar{display:none;}
 
 /* CARDS */
-.card{background:var(--surface);border-radius:14px;margin-bottom:8px;padding:13px 14px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.06),0 0 0 0.5px rgba(0,0,0,.05);transition:box-shadow .15s,transform .1s;}
+.card{background:var(--surface);border-radius:14px;margin-bottom:8px;padding:13px 14px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.06),0 0 0 0.5px rgba(0,0,0,.05);transition:box-shadow .15s,transform .1s;position:relative;}
 .card:active{transform:scale(0.99);}
 .card.selected{box-shadow:0 0 0 2px var(--blue),0 4px 16px rgba(9,124,232,0.15);}
 .card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
@@ -267,9 +267,9 @@ html,body{
 .ov-list.bulk-mode .card{cursor:pointer;padding-left:42px;position:relative;}
 .bulk-checkbox{position:absolute;left:12px;top:14px;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--gray2);background:white;display:flex;align-items:center;justify-content:center;font-size:12px;color:white;flex-shrink:0;transition:all .1s;}
 .bulk-checkbox.checked{background:var(--blue);border-color:var(--blue);}
-.bulk-action-bar{position:absolute;left:0;right:0;bottom:0;background:rgba(249,249,249,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid var(--sep);padding:10px 14px;display:none;align-items:center;gap:8px;z-index:20;}
+.bulk-action-bar{position:absolute;left:0;right:0;bottom:0;background:rgba(249,249,249,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid var(--sep);padding:10px 14px;display:none;flex-wrap:wrap;align-items:center;gap:8px;z-index:20;}
 .bulk-action-bar.show{display:flex;}
-.bulk-action-count{font-size:13px;font-weight:600;color:var(--text2);flex-shrink:0;font-family:var(--font-data);}
+.bulk-action-count{flex:1 0 100%;font-size:13px;font-weight:600;color:var(--text2);font-family:var(--font-data);}
 .overview-panel{position:relative;}
 
 /* ── INSTELLINGEN OVERLAY ── */
@@ -396,7 +396,8 @@ html,body{
   <div id="alle-insp-inhoud" style="flex:1;overflow-y:auto;padding:14px 16px 90px"></div>
   <div class="bulk-action-bar" id="alle-bulk-action-bar">
     <span class="bulk-action-count" id="alle-bulk-action-count">0 geselecteerd</span>
-    <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkDownloadExcelAlle()">⬇️ Downloaden</button>
+    <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkDownloadExcelAlle()">📊 Excel</button>
+    <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkDownloadRapportenAlle()">📄 Rapport</button>
     <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkAddToAgendaAlle()">📅 Agenda</button>
   </div>
 </div>
@@ -441,7 +442,8 @@ html,body{
       <div class="ov-list" id="inspectie-lijst"></div>
       <div class="bulk-action-bar" id="bulk-action-bar">
         <span class="bulk-action-count" id="bulk-action-count">0 geselecteerd</span>
-        <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkDownloadExcel()">⬇️ Downloaden</button>
+        <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkDownloadExcel()">📊 Excel</button>
+        <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkDownloadRapporten()">📄 Rapport</button>
         <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkAddToAgenda()">📅 Agenda</button>
       </div>
     </div>
@@ -880,8 +882,17 @@ function bulkAddToAgendaFrom(idSet) {
   if (ids.length>5 && !confirm(`${ids.length} tabbladen openen?`)) return;
   ids.forEach((id,idx)=>setTimeout(()=>openInOutlook(id),idx*400));
 }
+function bulkDownloadRapportenFrom(idSet) {
+  const ids=[...idSet]; if(!ids.length) return;
+  if (ids.length>5 && !confirm(`${ids.length} rapporten openen?`)) return;
+  ids.forEach((id,idx)=>setTimeout(()=>{
+    const insp = state.inspecties.find(x=>x.id===id);
+    if (insp) genereerRapport(insp);
+  }, idx*400));
+}
 function bulkDownloadExcel() { bulkDownloadExcelFrom(bulkSelected); }
 function bulkAddToAgenda() { bulkAddToAgendaFrom(bulkSelected); }
+function bulkDownloadRapporten() { bulkDownloadRapportenFrom(bulkSelected); }
 
 // ─── INSTELLINGEN ────────────────────────────────────────────────────────────
 function openInstellingen() { document.getElementById('settings-overlay').classList.remove('hidden'); renderCartoKey(); }
@@ -895,9 +906,41 @@ let geocodeTimer=null, dropdownResults=[], dropdownIndex=-1;
 function onAdresInput() { const val=document.getElementById('inp-adres').value.trim(); state.pendingGeo=null; state.pendingAdres=val; hideSuggestion(); clearTimeout(geocodeTimer); sluitDropdown(); if(val.length<4){setGeoStatus('');return;} setGeoStatus('⏳ Zoeken…'); geocodeTimer=setTimeout(()=>geocodeAutocomplete(val),400); }
 function onAdresKeydown(e) { const dd=document.getElementById('adres-dropdown'); if(dd.style.display==='none') return; if(e.key==='ArrowDown'){e.preventDefault();dropdownIndex=Math.min(dropdownIndex+1,dropdownResults.length-1);updateDropdownHighlight();} else if(e.key==='ArrowUp'){e.preventDefault();dropdownIndex=Math.max(dropdownIndex-1,0);updateDropdownHighlight();} else if(e.key==='Enter'&&dropdownIndex>=0){e.preventDefault();kiesDropdownItem(dropdownIndex);} else if(e.key==='Escape') sluitDropdown(); }
 function updateDropdownHighlight() { document.querySelectorAll('#adres-dropdown li').forEach((li,i)=>li.classList.toggle('active',i===dropdownIndex)); }
-async function geocodeAutocomplete(adres) { try { const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adres)}&format=json&limit=5&countrycodes=nl&addressdetails=1`,{headers:{'Accept-Language':'nl'}}); const data=await r.json(); if(data.length===0){setGeoStatus('❌ Niet gevonden');sluitDropdown();return;} dropdownResults=data;dropdownIndex=-1;setGeoStatus(''); const dd=document.getElementById('adres-dropdown'); dd.innerHTML=data.map((item,i)=>`<li onclick="kiesDropdownItem(${i})">${formatDropdownLabel(item)}</li>`).join(''); dd.style.display='block'; } catch(e){setGeoStatus('❌ Fout');} }
-function formatDropdownLabel(item) { const a=item.address||{}; const parts=[]; if(a.road) parts.push(a.road+(a.house_number?' '+a.house_number:'')); if(a.city||a.town||a.village) parts.push(a.city||a.town||a.village); return parts.length?parts.join(', '):item.display_name.split(',').slice(0,3).join(','); }
-function kiesDropdownItem(i) { const item=dropdownResults[i]; if(!item) return; const label=formatDropdownLabel(item); document.getElementById('inp-adres').value=label; state.pendingGeo={lat:+item.lat,lng:+item.lon}; state.pendingAdres=label; setGeoStatus(`✓ ${label}`); sluitDropdown(); if(mapReady) map.setView([+item.lat,+item.lon],15); bereken_suggestie(+item.lat,+item.lon); }
+// ─── ADRESZOEKER (gedeeld door: nieuwe inspectie + bezochte adressen + adres bewerken) ──
+// Gebruikt Photon (komoot) i.p.v. Nominatim: geeft veel betrouwbaarder losse
+// huisnummers terug in plaats van dezelfde straat meerdere keren.
+async function geocodeZoek(query, limit=5) {
+  const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=${limit}&lang=nl&lat=52.1&lon=5.3`;
+  const r = await fetch(url);
+  const data = await r.json();
+  const resultaten = (data.features||[])
+    .filter(f => (f.properties||{}).countrycode === 'NL')
+    .map(f => {
+      const p = f.properties||{};
+      const [lng,lat] = f.geometry.coordinates;
+      const straat = p.street || p.name || '';
+      const huisnr = p.housenumber ? ' '+p.housenumber : '';
+      const plaats = p.city || p.town || p.village || p.county || '';
+      const label = [straat+huisnr, plaats].filter(Boolean).join(', ');
+      return label ? { label, lat, lng, heeftHuisnummer: !!p.housenumber } : null;
+    })
+    .filter(Boolean);
+  resultaten.sort((a,b) => (b.heeftHuisnummer?1:0) - (a.heeftHuisnummer?1:0));
+  const gezien = new Set();
+  return resultaten.filter(x => { if (gezien.has(x.label)) return false; gezien.add(x.label); return true; });
+}
+
+async function geocodeAutocomplete(adres) {
+  try {
+    const resultaten = await geocodeZoek(adres, 6);
+    if (!resultaten.length) { setGeoStatus('❌ Niet gevonden'); sluitDropdown(); return; }
+    dropdownResults=resultaten; dropdownIndex=-1; setGeoStatus('');
+    const dd=document.getElementById('adres-dropdown');
+    dd.innerHTML=resultaten.map((item,i)=>`<li onclick="kiesDropdownItem(${i})">${esc(item.label)}</li>`).join('');
+    dd.style.display='block';
+  } catch(e){ setGeoStatus('❌ Fout'); }
+}
+function kiesDropdownItem(i) { const item=dropdownResults[i]; if(!item) return; document.getElementById('inp-adres').value=item.label; state.pendingGeo={lat:item.lat,lng:item.lng}; state.pendingAdres=item.label; setGeoStatus(`✓ ${item.label}`); sluitDropdown(); if(mapReady) map.setView([item.lat,item.lng],15); bereken_suggestie(item.lat,item.lng); }
 function sluitDropdown() { const dd=document.getElementById('adres-dropdown'); dd.style.display='none'; dropdownResults=[];dropdownIndex=-1; }
 function setGeoStatus(msg) { document.getElementById('geo-status').textContent=msg; }
 
@@ -979,7 +1022,7 @@ function bouwInspectieKaart(i, opts) {
       </div>
     </div>` : '';
 
-  return `<div class="card ${selected?'selected':''}" onclick="${onClick}">
+  return `<div class="card ${selected?'selected':''}" style="${bulkModeActief?'padding-left:42px':''}" onclick="${onClick}">
     ${checkbox}
     <div class="card-top">
       <div class="card-address">${esc(i.adres)}</div>
@@ -1033,7 +1076,7 @@ async function slaanOp(id) {
   const dossiernummer = document.getElementById(`edit-dossier-${id}`)?.value.trim() || null;
   const flowId = document.getElementById(`edit-flowid-${id}`)?.value.trim() || null;
   let lat=i.lat, lng=i.lng;
-  if (nieuwAdres!==i.adres) { try { const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(nieuwAdres)}&format=json&limit=1&countrycodes=nl`,{headers:{'Accept-Language':'nl'}}); const data=await r.json(); if(data.length>0){lat=+data[0].lat;lng=+data[0].lon;} } catch(e){} }
+  if (nieuwAdres!==i.adres) { try { const resultaten = await geocodeZoek(nieuwAdres,1); if(resultaten.length){lat=resultaten[0].lat;lng=resultaten[0].lng;} } catch(e){} }
   await dbUpdateInspectie(id,{adres:nieuwAdres,datum,tijd,type,inspecteurId,notities,vastgoedType,dossiernummer,flowId,lat,lng}); state.selectedId=null;
 }
 
@@ -1166,12 +1209,11 @@ function onBezochtAdresInput() {
 }
 async function bzGeocodeAutocomplete(adres) {
   try {
-    const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adres)}&format=json&limit=5&countrycodes=nl&addressdetails=1`,{headers:{'Accept-Language':'nl'}});
-    const data=await r.json();
-    if (!data.length) return;
-    bzDropdownResults=data; bzDropdownIndex=-1;
+    const resultaten = await geocodeZoek(adres, 6);
+    if (!resultaten.length) return;
+    bzDropdownResults=resultaten; bzDropdownIndex=-1;
     const dd=document.getElementById('bz-adres-dropdown');
-    dd.innerHTML=data.map((item,i)=>`<li onclick="kiesBezochtAdresItem(${i})">${formatDropdownLabel(item)}</li>`).join('');
+    dd.innerHTML=resultaten.map((item,i)=>`<li onclick="kiesBezochtAdresItem(${i})">${esc(item.label)}</li>`).join('');
     dd.style.display='block';
   } catch(e) { /* stil falen; gebruiker kan opnieuw typen */ }
 }
@@ -1193,8 +1235,7 @@ function sluitBzDropdown() {
 }
 function kiesBezochtAdresItem(i) {
   const item=bzDropdownResults[i]; if (!item) return;
-  const label=formatDropdownLabel(item);
-  currentBezochtAdressen.push({ adres:label, lat:+item.lat, lng:+item.lon });
+  currentBezochtAdressen.push({ adres:item.label, lat:item.lat, lng:item.lng });
   verbergAdresInvoer();
   const blok = document.querySelector('.huisnr-blok');
   if (blok) blok.outerHTML = renderAdresBlok();
@@ -1833,6 +1874,7 @@ function updateAlleBulkActionBar() {
 }
 function bulkDownloadExcelAlle() { bulkDownloadExcelFrom(alleBulkSelected); }
 function bulkAddToAgendaAlle() { bulkAddToAgendaFrom(alleBulkSelected); }
+function bulkDownloadRapportenAlle() { bulkDownloadRapportenFrom(alleBulkSelected); }
 
 let alleSelectedId = null;
 function selectInspectieAlle(id) {
