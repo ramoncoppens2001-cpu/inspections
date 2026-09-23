@@ -6,18 +6,17 @@
 <title>Savills | Inspectie Planner</title>
 <link id="favicon" rel="icon" type="image/svg+xml">
 <!--
-  SUPABASE SQL (run once in SQL Editor):
+  SUPABASE SQL (eenmalig uitvoeren in SQL Editor):
   alter table inspecties add column if not exists bevindingen jsonb default '{}';
   alter table inspecties add column if not exists rapport_status text default 'gepland';
   alter table inspecties add column if not exists vastgoed_type text default 'Residentieel';
   alter table inspecties add column if not exists dossiernummer text default null;
   alter table inspecties add column if not exists flow_id text default null;
-  alter table inspecties add column if not exists panden jsonb default '[]';
-  alter table inspecties add column if not exists fotos jsonb default '[]';
+  alter table inspecties add column if not exists bezochte_adressen jsonb default '[]';
 
-  STORAGE (eenmalig instellen in Supabase):
-  Maak een PUBLIC bucket genaamd "inspectie-fotos" aan via Storage → New bucket.
-  Daar worden foto's van extra panden in opgeslagen (pad: <inspectie_id>/<pand_id>/<bestand>).
+  (De kolommen "panden", "fotos" en "bezochte_huisnummers" uit eerdere versies
+  zijn niet meer nodig sinds deze functie is vervangen door "bezochte_adressen".
+  Geen probleem als ze nog in de tabel staan, die worden gewoon niet meer gebruikt.)
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -279,36 +278,18 @@ html,body{
 .gear-btn:active,.gear-btn:hover{color:var(--purple);}
 .gear-btn svg{width:20px;height:20px;}
 
-/* ── PAND SWITCHER (conduct) ── */
-.pand-bar{display:flex;align-items:center;gap:6px;padding:10px 16px 2px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
-.pand-bar::-webkit-scrollbar{display:none;}
-.pand-chip{flex-shrink:0;display:flex;align-items:center;gap:5px;padding:7px 13px;border-radius:99px;font-size:13px;font-weight:600;background:white;color:var(--text2);border:1px solid var(--sep);cursor:pointer;white-space:nowrap;transition:all .12s;font-family:inherit;}
-.pand-chip.actief{background:var(--pink);color:white;border-color:var(--pink);}
-.pand-chip-del{margin-left:2px;opacity:.6;font-weight:700;}
-.pand-chip-add{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:var(--blue-light);color:var(--blue);border:none;cursor:pointer;font-size:18px;font-weight:600;}
-.pand-active-banner{margin:10px 16px 0;background:var(--blue-light);border:1px solid rgba(9,124,232,0.18);border-radius:10px;padding:9px 13px;font-size:13px;color:var(--blue);font-weight:600;display:flex;align-items:center;gap:6px;}
-
-/* ── NIEUW PAND OVERLAY ── */
-.pand-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);z-index:600;display:flex;align-items:flex-end;justify-content:center;}
-@media(min-width:600px){.pand-modal-overlay{align-items:center;}}
-.pand-modal{background:var(--surface);border-radius:16px 16px 0 0;width:100%;max-width:440px;padding:18px 18px calc(18px + env(safe-area-inset-bottom));}
-@media(min-width:600px){.pand-modal{border-radius:16px;}}
-.pand-modal h3{font-size:17px;font-weight:700;margin-bottom:14px;letter-spacing:-0.3px;}
-
-/* ── FOTO'S ── */
-.foto-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:12px 16px;}
-.foto-thumb{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;background:var(--bg);}
-.foto-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
-.foto-thumb .foto-del{position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,.55);color:white;border:none;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;line-height:1;}
-.foto-thumb.uploading{display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--gray);}
-.foto-add-btn{aspect-ratio:1;border-radius:10px;border:1.5px dashed var(--gray2);background:transparent;color:var(--gray);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;font-weight:500;cursor:pointer;font-family:inherit;}
-.foto-add-btn svg{width:20px;height:20px;}
-
-/* ── SNELLE OPMERKINGEN (pand) ── */
-.pand-quicknote{margin:12px 16px 0;background:var(--surface);border-radius:12px;padding:12px 14px;}
-.pand-quicknote label{font-size:12px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px;}
-.pand-quicknote textarea{width:100%;border:none;background:transparent;font-size:15px;font-family:inherit;outline:none;resize:vertical;min-height:50px;color:var(--text);line-height:1.45;}
-.pand-adres-row input{font-size:16px;}
+/* ── HUISNUMMER-BLOKJE (conduct) ── */
+.huisnr-blok{margin:12px 16px 0;background:var(--surface);border-radius:12px;padding:12px 14px;}
+.huisnr-blok-label{font-size:12px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;}
+.huisnr-rij{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+.huisnr-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:99px;font-size:13px;font-weight:600;background:var(--blue-light);color:var(--blue);}
+.huisnr-chip-del{cursor:pointer;opacity:.6;font-weight:700;font-size:11px;}
+.huisnr-add{display:inline-flex;align-items:center;padding:6px 12px;border-radius:99px;font-size:13px;font-weight:600;background:transparent;border:1.5px dashed var(--gray2);color:var(--gray);cursor:pointer;}
+.adres-invoer-wrap{margin-top:4px;position:relative;}
+.geo-dropdown{list-style:none;margin:4px 0 0;padding:0;background:white;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.13),0 0 0 0.5px rgba(0,0,0,.06);max-height:200px;overflow-y:auto;display:none;}
+.geo-dropdown li{padding:10px 14px;font-size:14px;cursor:pointer;border-bottom:0.5px solid var(--sep);}
+.geo-dropdown li:last-child{border-bottom:none;}
+.geo-dropdown li:hover,.geo-dropdown li.active{background:var(--blue-light);color:var(--blue);}
 
 /* ── PROGRESS BAR (conduct) ── */
 .progress-wrap{margin:0 16px;height:4px;background:rgba(120,120,128,0.16);border-radius:99px;overflow:hidden;flex-shrink:0;}
@@ -395,29 +376,6 @@ html,body{
       </div>
     </div>
     <div class="add-btn-wrap"><button class="btn btn-primary btn-full" onclick="voegToe()">+ Inspectie inplannen</button></div>
-  </div>
-</div>
-
-<!-- ══ OVERLAY: NIEUW PAND TOEVOEGEN ══ -->
-<div id="pand-modal-overlay" class="pand-modal-overlay hidden">
-  <div class="pand-modal">
-    <h3>Nog een pand toevoegen</h3>
-    <div class="form-card" style="margin-bottom:12px">
-      <div class="form-row-ios" style="flex-direction:column;align-items:stretch;gap:6px">
-        <label style="font-size:13px;color:var(--gray)">Adres</label>
-        <input type="text" id="pand-modal-adres" placeholder="Straat 456, Plaats" style="text-align:left;color:var(--text);font-size:16px" onkeydown="if(event.key==='Enter')bevestigNieuwPand()">
-      </div>
-    </div>
-    <div class="form-card" style="margin-bottom:16px">
-      <div class="form-row-ios" style="flex-direction:column;align-items:stretch;gap:6px">
-        <label style="font-size:13px;color:var(--gray)">Opmerkingen (optioneel)</label>
-        <textarea id="pand-modal-notities" placeholder="Korte notitie…" style="border:none;background:transparent;font-size:15px;font-family:inherit;outline:none;resize:vertical;min-height:50px;color:var(--text)"></textarea>
-      </div>
-    </div>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn-gray" style="flex:1" onclick="sluitPandModal()">Annuleren</button>
-      <button class="btn btn-primary" style="flex:1" onclick="bevestigNieuwPand()">Binnengaan →</button>
-    </div>
   </div>
 </div>
 
@@ -782,8 +740,9 @@ async function laadData() {
   ]);
   if (e1 || e2) { setSyncStatus('fout'); console.error(e1||e2); return; }
   state.inspecteurs = inspecteurs || [];
-  state.inspecties  = (inspecties || []).map(i => ({ ...i, inspecteurId: i.inspecteur_id, bevindingen: i.bevindingen || {}, rapportStatus: i.rapport_status || 'gepland', vastgoedType: i.vastgoed_type || 'Residentieel', dossiernummer: i.dossiernummer || '', flowId: i.flow_id || '', panden: i.panden || [], fotos: i.fotos || [] }));
+  state.inspecties  = (inspecties || []).map(i => ({ ...i, inspecteurId: i.inspecteur_id, bevindingen: i.bevindingen || {}, rapportStatus: i.rapport_status || 'gepland', vastgoedType: i.vastgoed_type || 'Residentieel', dossiernummer: i.dossiernummer || '', flowId: i.flow_id || '', bezochtAdressen: i.bezochte_adressen || [] }));
   state.selectedId  = null;
+  alleSelectedId    = null;
   renderTeam(); renderMarkers(); renderLijst(); renderAlleTabel();
   setSyncStatus('verbonden');
   if (!routedFromUrl) { routedFromUrl = true; routeVanuitUrl(); }
@@ -945,6 +904,7 @@ function setGeoStatus(msg) { document.getElementById('geo-status').textContent=m
 document.addEventListener('click', e => {
   if (!e.target.isConnected) return;
   if (!e.target.closest('#inp-adres') && !e.target.closest('#adres-dropdown')) sluitDropdown();
+  if (!e.target.closest('#bz-adres-invoer') && !e.target.closest('#bz-adres-dropdown')) sluitBzDropdown();
   if (!e.target.closest('#emoji-display') && !e.target.closest('#emoji-picker')) document.getElementById('emoji-picker')?.classList.remove('open');
   if (!e.target.closest('[id^="edit-emoji-display-"]') && !e.target.closest('[id^="emoji-picker-edit-"]')) document.querySelectorAll('[id^="emoji-picker-edit-"]').forEach(p=>p.classList.remove('open'));
 });
@@ -986,6 +946,65 @@ function selectInspectie(id) {
 function setOverviewFilter(f) { overviewFilter=f; renderLijst(); }
 function setOverviewDaysBack(n) { overviewDaysBack=+n; renderLijst(); }
 
+// ─── GEDEELDE KAART-TEMPLATE (Overzicht + Alle) ──────────────────────────────
+function bouwInspectieKaart(i, opts) {
+  const { selected, bulkModeActief, bulkChecked, onClick } = opts;
+  const insp=state.inspecteurs.find(x=>x.id===i.inspecteurId);
+  const status=i.rapportStatus||'gepland';
+  const statusBadge = status==='afgerond' ? `<span class="badge badge-green">✓ Afgerond</span>` : status==='bezig' ? `<span class="badge badge-orange">⏳ Bezig</span>` : `<span class="badge badge-gray">Gepland</span>`;
+  const inspOpts=state.inspecteurs.map(x=>`<option value="${x.id}" ${x.id===i.inspecteurId?'selected':''}>${x.naam}</option>`).join('');
+  const huisnrCount = (i.bezochtAdressen && i.bezochtAdressen.length) || 0;
+  const huisnrBadge = huisnrCount>0 ? `<span class="badge badge-gray">🏠 +${huisnrCount}</span>` : '';
+  const checked = !!bulkChecked;
+  const checkbox = bulkModeActief ? `<div class="bulk-checkbox${checked?' checked':''}">${checked?'✓':''}</div>` : '';
+
+  const editForm = selected ? `
+    <div class="edit-form" onclick="event.stopPropagation()">
+      <div class="form-row"><label>Adres</label><input type="text" id="edit-adres-${i.id}" value="${i.adres.replace(/"/g,'&quot;')}"></div>
+      <div class="form-row-2">
+        <div><label>Datum</label><input type="date" id="edit-datum-${i.id}" value="${i.datum}"></div>
+        <div><label>Tijd</label><input type="time" id="edit-tijd-${i.id}" value="${i.tijd}"></div>
+      </div>
+      <div class="form-row-2">
+        <div><label>Dossiernummer</label><input type="text" id="edit-dossier-${i.id}" value="${i.dossiernummer||''}" placeholder="—"></div>
+        <div><label>FLOW ID</label><input type="text" id="edit-flowid-${i.id}" value="${i.flowId||''}" placeholder="—"></div>
+      </div>
+      <div class="form-row"><label>Type</label><select id="edit-type-${i.id}"><option ${i.type==='Intern en extern'?'selected':''}>Intern en extern</option><option ${i.type==='Extern'?'selected':''}>Extern</option></select></div>
+      <div class="form-row"><label>Inspecteur</label><select id="edit-insp-${i.id}"><option value="">— Geen —</option>${inspOpts}</select></div>
+      <div class="form-row"><label>Notities</label><textarea id="edit-notities-${i.id}">${i.notities||''}</textarea></div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" style="flex:1" onclick="slaanOp(${i.id})">Opslaan</button>
+        <button class="btn btn-sm btn-gray" onclick="openInOutlook(${i.id})">📅</button>
+        <button class="btn btn-sm btn-red" onclick="verwijderInspectie(${i.id})">✕</button>
+      </div>
+    </div>` : '';
+
+  return `<div class="card ${selected?'selected':''}" onclick="${onClick}">
+    ${checkbox}
+    <div class="card-top">
+      <div class="card-address">${esc(i.adres)}</div>
+      <div class="card-date">${formatDatum(i.datum)}</div>
+    </div>
+    <div class="card-meta">
+      <span style="font-size:14px;line-height:1">${insp?(insp.emoji||'👤'):'👤'}</span>
+      <span>${insp?esc(insp.naam):'—'}</span>
+      <span>·</span><span>${i.tijd}</span><span>·</span>
+      <span class="badge">${i.type}</span>
+      ${statusBadge}
+      ${huisnrBadge}
+    </div>
+    ${i.notities&&!selected?`<div style="font-size:12px;color:var(--text3);margin-top:5px">${esc(i.notities)}</div>`:''}
+    ${!bulkModeActief?`<div class="card-actions" onclick="event.stopPropagation()">
+      <button class="btn btn-sm btn-primary" onclick="showConductScreen(${i.id})">📋 Uitvoeren</button>
+      ${status==='afgerond'?`<button class="btn btn-sm btn-green" onclick="genereerRapport(${i.id})">📄 Rapport</button>`:''}
+      <button class="btn btn-sm btn-gray" onclick="exportInspectieExcel(${i.id})">⬇️ Excel</button>
+      <button class="btn btn-sm btn-gray" onclick="openInOutlook(${i.id})">📅</button>
+      <button class="btn btn-sm btn-red" onclick="verwijderInspectie(${i.id})">✕</button>
+    </div>`:''}
+    ${editForm}
+  </div>`;
+}
+
 function renderLijst() {
   const container=document.getElementById('inspectie-lijst');
   let inspecties=gefilterdInspecties();
@@ -998,63 +1017,12 @@ function renderLijst() {
   container.classList.toggle('bulk-mode', bulkMode);
   if (!inspecties.length) { container.innerHTML='<div class="empty">Geen inspecties gevonden.</div>'; updateBulkActionBar(); return; }
 
-  container.innerHTML = inspecties.map(i => {
-    const insp=state.inspecteurs.find(x=>x.id===i.inspecteurId);
-    const sel=!bulkMode && state.selectedId===i.id;
-    const status=i.rapportStatus||'gepland';
-    const statusBadge = status==='afgerond' ? `<span class="badge badge-green">✓ Afgerond</span>` : status==='bezig' ? `<span class="badge badge-orange">⏳ Bezig</span>` : `<span class="badge badge-gray">Gepland</span>`;
-    const inspOpts=state.inspecteurs.map(x=>`<option value="${x.id}" ${x.id===i.inspecteurId?'selected':''}>${x.naam}</option>`).join('');
-    const pandenCount = (i.panden && i.panden.length) ? i.panden.length + 1 : 1;
-    const pandenBadge = pandenCount>1 ? `<span class="badge badge-gray">🏠 ${pandenCount} panden</span>` : '';
-    const checked = bulkSelected.has(i.id);
-    const clickHandler = bulkMode ? `toggleBulkSelect(${i.id})` : `selectInspectie(${i.id})`;
-    const checkbox = bulkMode ? `<div class="bulk-checkbox${checked?' checked':''}">${checked?'✓':''}</div>` : '';
-
-    const editForm = sel ? `
-      <div class="edit-form" onclick="event.stopPropagation()">
-        <div class="form-row"><label>Adres</label><input type="text" id="edit-adres-${i.id}" value="${i.adres.replace(/"/g,'&quot;')}"></div>
-        <div class="form-row-2">
-          <div><label>Datum</label><input type="date" id="edit-datum-${i.id}" value="${i.datum}"></div>
-          <div><label>Tijd</label><input type="time" id="edit-tijd-${i.id}" value="${i.tijd}"></div>
-        </div>
-        <div class="form-row-2">
-          <div><label>Dossiernummer</label><input type="text" id="edit-dossier-${i.id}" value="${i.dossiernummer||''}" placeholder="—"></div>
-          <div><label>FLOW ID</label><input type="text" id="edit-flowid-${i.id}" value="${i.flowId||''}" placeholder="—"></div>
-        </div>
-        <div class="form-row"><label>Type</label><select id="edit-type-${i.id}"><option ${i.type==='Intern en extern'?'selected':''}>Intern en extern</option><option ${i.type==='Extern'?'selected':''}>Extern</option></select></div>
-        <div class="form-row"><label>Inspecteur</label><select id="edit-insp-${i.id}"><option value="">— Geen —</option>${inspOpts}</select></div>
-        <div class="form-row"><label>Notities</label><textarea id="edit-notities-${i.id}">${i.notities||''}</textarea></div>
-        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
-          <button class="btn btn-primary btn-sm" style="flex:1" onclick="slaanOp(${i.id})">Opslaan</button>
-          <button class="btn btn-sm btn-gray" onclick="openInOutlook(${i.id})">📅</button>
-          <button class="btn btn-sm btn-red" onclick="verwijderInspectie(${i.id})">✕</button>
-        </div>
-      </div>` : '';
-
-    return `<div class="card ${sel?'selected':''}" onclick="${clickHandler}">
-      ${checkbox}
-      <div class="card-top">
-        <div class="card-address">${i.adres}</div>
-        <div class="card-date">${formatDatum(i.datum)}</div>
-      </div>
-      <div class="card-meta">
-        <span style="font-size:14px;line-height:1">${insp?(insp.emoji||'👤'):'👤'}</span>
-        <span>${insp?insp.naam:'—'}</span>
-        <span>·</span><span>${i.tijd}</span><span>·</span>
-        <span class="badge">${i.type}</span>
-        ${statusBadge}
-        ${pandenBadge}
-      </div>
-      ${i.notities&&!sel?`<div style="font-size:12px;color:var(--text3);margin-top:5px">${i.notities}</div>`:''}
-      ${!bulkMode?`<div class="card-actions" onclick="event.stopPropagation()">
-        <button class="btn btn-sm btn-primary" onclick="showConductScreen(${i.id})">📋 Uitvoeren</button>
-        ${status==='afgerond'?`<button class="btn btn-sm btn-green" onclick="genereerRapport(${i.id})">📄 Rapport</button>`:''}
-        <button class="btn btn-sm btn-gray" onclick="openInOutlook(${i.id})">📅</button>
-        <button class="btn btn-sm btn-red" onclick="verwijderInspectie(${i.id})">✕</button>
-      </div>`:''}
-      ${editForm}
-    </div>`;
-  }).join('');
+  container.innerHTML = inspecties.map(i => bouwInspectieKaart(i, {
+    selected: !bulkMode && state.selectedId===i.id,
+    bulkModeActief: bulkMode,
+    bulkChecked: bulkSelected.has(i.id),
+    onClick: bulkMode ? `toggleBulkSelect(${i.id})` : `selectInspectie(${i.id})`,
+  })).join('');
   updateBulkActionBar();
 }
 
@@ -1130,35 +1098,25 @@ async function voegInspecteurToe() { const naam=document.getElementById('inp-naa
 
 // ─── CONDUCT SCREEN ───────────────────────────────────────────────────────────
 let currentBevindingId=null, currentBevData={}, autoSaveTimer=null, currentVastgoedType='Residentieel';
-let currentPanden=[], currentPandIndex=0;
+let currentBezochtAdressen=[];
 const INSPECTIE_TYPE_MAP = {'Intern en extern':'Volledig','Extern':'Drive-by'};
-
-function nieuwPandId() { return 'p_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 
 function showConductScreen(id) {
   currentBevindingId=id;
   const inspectie=state.inspecties.find(x=>x.id===id);
   if (!inspectie) return;
 
-  const pand0Bev = JSON.parse(JSON.stringify(inspectie.bevindingen||{}));
-  if (!pand0Bev.inspection_date) pand0Bev.inspection_date = inspectie.datum;
-  if (inspectie.dossiernummer) pand0Bev.dossiernummer = inspectie.dossiernummer;
-  if (inspectie.flowId) pand0Bev.flow_id = inspectie.flowId;
-  if (!pand0Bev.inspection_type) pand0Bev.inspection_type = INSPECTIE_TYPE_MAP[inspectie.type] || 'Volledig';
-  if (!pand0Bev.responsible_rt_valuer_name) {
+  currentBevData = JSON.parse(JSON.stringify(inspectie.bevindingen||{}));
+  if (!currentBevData.inspection_date) currentBevData.inspection_date = inspectie.datum;
+  if (inspectie.dossiernummer) currentBevData.dossiernummer = inspectie.dossiernummer;
+  if (inspectie.flowId) currentBevData.flow_id = inspectie.flowId;
+  if (!currentBevData.inspection_type) currentBevData.inspection_type = INSPECTIE_TYPE_MAP[inspectie.type] || 'Volledig';
+  if (!currentBevData.responsible_rt_valuer_name) {
     const insp=state.inspecteurs.find(x=>x.id===inspectie.inspecteurId);
-    if (insp) pand0Bev.responsible_rt_valuer_name = insp.naam;
+    if (insp) currentBevData.responsible_rt_valuer_name = insp.naam;
   }
-  const pand0 = { id:'p0', hoofdpand:true, adres:inspectie.adres, lat:inspectie.lat, lng:inspectie.lng, vastgoedType:inspectie.vastgoedType||'Residentieel', bevindingen:pand0Bev, fotos:JSON.parse(JSON.stringify(inspectie.fotos||[])) };
-  const extraPanden = JSON.parse(JSON.stringify(inspectie.panden||[])).map(p => ({
-    id: p.id || nieuwPandId(), hoofdpand:false, adres:p.adres||'', lat:p.lat||null, lng:p.lng||null,
-    notities:p.notities||'', vastgoedType:p.vastgoedType||'Residentieel', bevindingen:p.bevindingen||{}, fotos:p.fotos||[]
-  }));
-
-  currentPanden = [pand0, ...extraPanden];
-  currentPandIndex = 0;
-  currentBevData = currentPanden[0].bevindingen;
-  currentVastgoedType = currentPanden[0].vastgoedType;
+  currentVastgoedType = inspectie.vastgoedType || 'Residentieel';
+  currentBezochtAdressen = Array.isArray(inspectie.bezochtAdressen) ? inspectie.bezochtAdressen.map(a=>({...a})) : [];
 
   renderConductForm(inspectie);
   document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
@@ -1166,146 +1124,86 @@ function showConductScreen(id) {
   document.querySelectorAll('.tab-item').forEach((t,i)=>t.classList.toggle('active',i===1));
 }
 
-function wisselPand(idx) {
-  if (idx<0 || idx>=currentPanden.length) return;
-  currentPandIndex = idx;
-  currentBevData = currentPanden[idx].bevindingen;
-  currentVastgoedType = currentPanden[idx].vastgoedType || 'Residentieel';
-  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
-  if (inspectie) renderConductForm(inspectie);
+// ─── BEZOCHTE HUISNUMMERS (los blokje, geen apart formulier) ──────────────────
+function renderAdresBlok() {
+  const chips = currentBezochtAdressen.map((a, idx) =>
+    `<span class="huisnr-chip">${esc(a.adres)}<span class="huisnr-chip-del" onclick="verwijderBezochtAdres(${idx})" title="Verwijderen">✕</span></span>`
+  ).join('');
+  return `<div class="huisnr-blok">
+    <div class="huisnr-blok-label">Ook binnen geweest bij</div>
+    <div class="huisnr-rij">
+      ${chips}
+      <span class="huisnr-add" id="huisnr-add-knop" onclick="toonAdresInvoer()">+ Adres</span>
+    </div>
+    <div class="adres-invoer-wrap hidden" id="adres-invoer-wrap">
+      <div class="srch-inner" style="margin-top:8px;position:relative">
+        <svg class="srch-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="bz-adres-invoer" placeholder="Zoek adres…" autocomplete="off" oninput="onBezochtAdresInput()" onkeydown="onBezochtAdresKeydown(event)">
+      </div>
+      <ul id="bz-adres-dropdown" class="geo-dropdown"></ul>
+      <button type="button" class="btn btn-sm btn-gray" style="margin-top:8px;width:100%" onclick="verbergAdresInvoer()">Annuleren</button>
+    </div>
+  </div>`;
 }
-
-function opentPandModal() {
-  document.getElementById('pand-modal-adres').value='';
-  document.getElementById('pand-modal-notities').value='';
-  document.getElementById('pand-modal-overlay').classList.remove('hidden');
-  setTimeout(()=>document.getElementById('pand-modal-adres').focus(),60);
+function toonAdresInvoer() {
+  document.getElementById('huisnr-add-knop').classList.add('hidden');
+  document.getElementById('adres-invoer-wrap').classList.remove('hidden');
+  const inp = document.getElementById('bz-adres-invoer');
+  inp.value=''; inp.focus();
 }
-function sluitPandModal() { document.getElementById('pand-modal-overlay').classList.add('hidden'); }
-
-async function bevestigNieuwPand() {
-  const adres = document.getElementById('pand-modal-adres').value.trim();
-  const notities = document.getElementById('pand-modal-notities').value.trim();
-  if (!adres) { alert('Vul een adres in.'); return; }
-  let lat=null, lng=null;
+function verbergAdresInvoer() {
+  sluitBzDropdown();
+  document.getElementById('adres-invoer-wrap').classList.add('hidden');
+  document.getElementById('huisnr-add-knop').classList.remove('hidden');
+}
+let bzDropdownResults=[], bzDropdownIndex=-1, bzGeocodeTimer=null;
+function onBezochtAdresInput() {
+  const val=(document.getElementById('bz-adres-invoer').value||'').trim();
+  clearTimeout(bzGeocodeTimer);
+  sluitBzDropdown();
+  if (val.length<4) return;
+  bzGeocodeTimer=setTimeout(()=>bzGeocodeAutocomplete(val),400);
+}
+async function bzGeocodeAutocomplete(adres) {
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adres)}&format=json&limit=1&countrycodes=nl`,{headers:{'Accept-Language':'nl'}});
-    const data = await r.json();
-    if (data.length>0) { lat=+data[0].lat; lng=+data[0].lon; }
-  } catch(e) {}
-  const nieuw = { id:nieuwPandId(), hoofdpand:false, adres, lat, lng, notities, vastgoedType:'Residentieel', bevindingen:{}, fotos:[] };
-  nieuw.bevindingen.inspection_date = currentPanden[0].bevindingen.inspection_date;
-  nieuw.bevindingen.inspection_type = currentPanden[0].bevindingen.inspection_type;
-  nieuw.bevindingen.responsible_rt_valuer_name = currentPanden[0].bevindingen.responsible_rt_valuer_name;
-  currentPanden.push(nieuw);
-  sluitPandModal();
-  wisselPand(currentPanden.length-1);
-  await saveBevindingen('bezig');
+    const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adres)}&format=json&limit=5&countrycodes=nl&addressdetails=1`,{headers:{'Accept-Language':'nl'}});
+    const data=await r.json();
+    if (!data.length) return;
+    bzDropdownResults=data; bzDropdownIndex=-1;
+    const dd=document.getElementById('bz-adres-dropdown');
+    dd.innerHTML=data.map((item,i)=>`<li onclick="kiesBezochtAdresItem(${i})">${formatDropdownLabel(item)}</li>`).join('');
+    dd.style.display='block';
+  } catch(e) { /* stil falen; gebruiker kan opnieuw typen */ }
 }
-
-function verwijderPand(idx, ev) {
-  if (ev) ev.stopPropagation();
-  if (currentPanden[idx]?.hoofdpand) { alert('Het hoofdpand kan niet verwijderd worden.'); return; }
-  if (!confirm('Dit pand en de bijbehorende gegevens en foto\'s verwijderen?')) return;
-  currentPanden.splice(idx,1);
-  if (currentPandIndex>=currentPanden.length) currentPandIndex=currentPanden.length-1;
-  currentBevData = currentPanden[currentPandIndex].bevindingen;
-  currentVastgoedType = currentPanden[currentPandIndex].vastgoedType||'Residentieel';
-  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
-  if (inspectie) renderConductForm(inspectie);
-  saveBevindingen('bezig');
+function onBezochtAdresKeydown(e) {
+  const dd=document.getElementById('bz-adres-dropdown');
+  if (!dd || dd.style.display!=='block') return;
+  if (e.key==='ArrowDown') { e.preventDefault(); bzDropdownIndex=Math.min(bzDropdownIndex+1,bzDropdownResults.length-1); bzUpdateHighlight(); }
+  else if (e.key==='ArrowUp') { e.preventDefault(); bzDropdownIndex=Math.max(bzDropdownIndex-1,0); bzUpdateHighlight(); }
+  else if (e.key==='Enter' && bzDropdownIndex>=0) { e.preventDefault(); kiesBezochtAdresItem(bzDropdownIndex); }
+  else if (e.key==='Escape') sluitBzDropdown();
 }
-
-function setPandAdres(idx, value) {
-  currentPanden[idx].adres = value;
-  const bar = document.querySelector('#conduct-content .pand-bar');
-  if (bar) bar.outerHTML = renderPandBar();
+function bzUpdateHighlight() {
+  document.querySelectorAll('#bz-adres-dropdown li').forEach((li,i)=>li.classList.toggle('active',i===bzDropdownIndex));
+}
+function sluitBzDropdown() {
+  const dd=document.getElementById('bz-adres-dropdown');
+  if (dd) { dd.style.display='none'; dd.innerHTML=''; }
+  bzDropdownResults=[]; bzDropdownIndex=-1;
+}
+function kiesBezochtAdresItem(i) {
+  const item=bzDropdownResults[i]; if (!item) return;
+  const label=formatDropdownLabel(item);
+  currentBezochtAdressen.push({ adres:label, lat:+item.lat, lng:+item.lon });
+  verbergAdresInvoer();
+  const blok = document.querySelector('.huisnr-blok');
+  if (blok) blok.outerHTML = renderAdresBlok();
   scheduleAutoSave();
 }
-function setPandNotitie(idx, value) { currentPanden[idx].notities = value; scheduleAutoSave(); }
-function setHoofdNotitie(value) {
-  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
-  if (inspectie) inspectie.notities = value;
-  scheduleAutoSave();
-}
-
-// Verkleint/comprimeert een foto in de browser vóór upload, zodat een foto van
-// een telefooncamera (vaak 3-8 MB) niet ongewijzigd naar Supabase Storage gaat.
-async function comprimeerFoto(file, maxAfmeting = 1920, kwaliteit = 0.82) {
-  if (!file.type || !file.type.startsWith('image/')) return file; // geen afbeelding, niet aankomen
-  if (file.type === 'image/svg+xml') return file; // vector, niets te comprimeren
-  try {
-    let bron, breedte, hoogte;
-    if ('createImageBitmap' in window) {
-      // imageOrientation:'from-image' zorgt dat een foto die "op zijn kant" is
-      // opgeslagen (heel gangbaar bij telefooncamera's) rechtop blijft staan.
-      bron = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      breedte = bron.width; hoogte = bron.height;
-    } else {
-      bron = await new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = URL.createObjectURL(file);
-      });
-      breedte = bron.naturalWidth; hoogte = bron.naturalHeight;
-    }
-    const schaal = Math.min(1, maxAfmeting / Math.max(breedte, hoogte));
-    if (schaal >= 1 && file.size < 1.2 * 1024 * 1024) {
-      if (bron.close) bron.close();
-      return file; // al klein genoeg, niet opnieuw encoderen
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(breedte * schaal));
-    canvas.height = Math.max(1, Math.round(hoogte * schaal));
-    canvas.getContext('2d').drawImage(bron, 0, 0, canvas.width, canvas.height);
-    if (bron.close) bron.close();
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', kwaliteit));
-    return blob || file;
-  } catch (e) {
-    console.warn('Foto comprimeren mislukt, originele foto wordt gebruikt:', e);
-    return file; // val terug op het origineel, liever een grote foto dan geen foto
-  }
-}
-
-async function handleFotoUpload(ev, pandIdx) {
-  const files = Array.from(ev.target.files||[]);
-  if (!files.length) return;
-  const pand = currentPanden[pandIdx];
-  const grid = document.getElementById(`foto-grid-${pandIdx}`);
-  for (const file of files) {
-    let placeholder=null;
-    if (grid) { placeholder=document.createElement('div'); placeholder.className='foto-thumb uploading'; placeholder.textContent='⏳'; grid.insertBefore(placeholder, grid.lastElementChild); }
-    try {
-      const gecomprimeerd = await comprimeerFoto(file);
-      const werdGecomprimeerd = gecomprimeerd !== file;
-      const ext = werdGecomprimeerd ? 'jpg' : ((file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg');
-      const path = `${currentBevindingId}/${pand.id}/${Date.now()}_${Math.random().toString(36).slice(2,7)}.${ext}`;
-      const { error } = await db.storage.from('inspectie-fotos').upload(path, gecomprimeerd, { upsert:false, contentType: werdGecomprimeerd ? 'image/jpeg' : (file.type||'image/jpeg') });
-      if (error) throw error;
-      const { data } = db.storage.from('inspectie-fotos').getPublicUrl(path);
-      pand.fotos = pand.fotos || [];
-      pand.fotos.push({ path, url: data.publicUrl });
-    } catch(e) {
-      console.error('Foto upload mislukt:', e);
-      alert('Foto uploaden mislukt. Controleer of de storage bucket "inspectie-fotos" (public) bestaat in Supabase.');
-    }
-    if (placeholder) placeholder.remove();
-  }
-  ev.target.value = '';
-  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
-  if (inspectie) renderConductForm(inspectie);
-  scheduleAutoSave();
-}
-
-async function verwijderFoto(pandIdx, fotoIdx) {
-  const pand = currentPanden[pandIdx];
-  const foto = pand.fotos?.[fotoIdx];
-  if (!confirm('Foto verwijderen?')) return;
-  if (foto?.path) { try { await db.storage.from('inspectie-fotos').remove([foto.path]); } catch(e) {} }
-  pand.fotos.splice(fotoIdx,1);
-  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
-  if (inspectie) renderConductForm(inspectie);
+function verwijderBezochtAdres(idx) {
+  currentBezochtAdressen.splice(idx,1);
+  const blok = document.querySelector('.huisnr-blok');
+  if (blok) blok.outerHTML = renderAdresBlok();
   scheduleAutoSave();
 }
 
@@ -1328,13 +1226,9 @@ function berekenVoortgang() {
 
 async function switchFormType(type) {
   currentVastgoedType = type;
-  currentPanden[currentPandIndex].vastgoedType = type;
+  await db.from('inspecties').update({ vastgoed_type: type }).eq('id', currentBevindingId);
   const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
-  if (currentPandIndex === 0) {
-    await db.from('inspecties').update({ vastgoed_type: type }).eq('id', currentBevindingId);
-    if (inspectie) inspectie.vastgoedType = type;
-  }
-  if (inspectie) renderConductForm(inspectie);
+  if (inspectie) { inspectie.vastgoedType = type; renderConductForm(inspectie); }
 }
 
 function checkConditional(conditie) {
@@ -1454,64 +1348,20 @@ function renderSectieAccordion(sectie) {
   </div>`;
 }
 
-function renderPandBar() {
-  const chips = currentPanden.map((p, idx) => {
-    const label = p.hoofdpand ? ('🏠 ' + (p.adres || 'Hoofdpand').split(',')[0]) : (p.adres ? p.adres.split(',')[0] : `Pand ${idx+1}`);
-    const del = !p.hoofdpand ? `<span class="pand-chip-del" onclick="verwijderPand(${idx},event)" title="Pand verwijderen">✕</span>` : '';
-    return `<button type="button" class="pand-chip${idx===currentPandIndex?' actief':''}" onclick="wisselPand(${idx})">${esc(label)}${del}</button>`;
-  }).join('');
-  return `<div class="pand-bar">${chips}<button type="button" class="pand-chip-add" onclick="opentPandModal()" title="Nog een pand toevoegen">+</button></div>`;
-}
-
-function renderFotoSectie(pand, pandIdx) {
-  const thumbs = (pand.fotos||[]).map((f, fi) => `<div class="foto-thumb"><img src="${f.url}" loading="lazy" alt="Foto"><button type="button" class="foto-del" onclick="verwijderFoto(${pandIdx},${fi})" title="Verwijderen">✕</button></div>`).join('');
-  return `<div class="acc-section acc-section-fotos">
-    <div class="acc-header open" style="cursor:default">
-      <span class="acc-icon">📷</span>
-      <span class="acc-title">Foto's</span>
-      ${(pand.fotos&&pand.fotos.length)?`<span class="acc-badge">${pand.fotos.length}</span>`:''}
-    </div>
-    <div class="acc-body open">
-      <div class="foto-grid" id="foto-grid-${pandIdx}">
-        ${thumbs}
-        <label class="foto-add-btn">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-          Foto
-          <input type="file" accept="image/*" capture="environment" multiple style="display:none" onchange="handleFotoUpload(event,${pandIdx})">
-        </label>
-      </div>
-    </div>
-  </div>`;
-}
-
 function renderConductForm(inspectie) {
   const insp=state.inspecteurs.find(x=>x.id===inspectie.inspecteurId);
   const status=inspectie.rapportStatus||'gepland';
   const isRes = currentVastgoedType === 'Residentieel';
-  const pand = currentPanden[currentPandIndex];
-  const meerdereePanden = currentPanden.length > 1;
   const voortgang = berekenVoortgang();
 
-  let html = '';
-  html += renderPandBar();
-
-  html += `<div class="prop-header-card">
-    <div class="prop-header-address">${esc(pand.adres || inspectie.adres)}</div>
+  let html = `<div class="prop-header-card">
+    <div class="prop-header-address">${esc(inspectie.adres)}</div>
     <div class="prop-header-meta">${formatDatumLang(inspectie.datum)} · ${inspectie.tijd} · ${inspectie.type}</div>
     <div class="prop-header-meta" style="margin-top:2px">${insp?(insp.emoji+' '+insp.naam):'—'}</div>
     ${status==='afgerond'?'<div style="margin-top:8px"><span class="badge badge-green">✓ Afgerond</span></div>':''}
   </div>`;
 
-  if (!pand.hoofdpand) {
-    html += `<div class="pand-active-banner">📍 Je bent nu binnen bij <span style="text-decoration:underline dotted">${esc(pand.adres||'dit pand')}</span></div>
-    <div class="team-section pand-adres-row" style="margin:10px 16px 0">
-      <div class="team-card">
-        <div class="form-row-ios"><label>Adres</label><input type="text" value="${esc(pand.adres||'')}" oninput="setPandAdres(${currentPandIndex},this.value)"></div>
-      </div>
-    </div>`;
-  } else if (meerdereePanden) {
-    html += `<div class="pand-active-banner">📍 Je bent nu binnen bij het hoofdpand</div>`;
-  }
+  html += renderAdresBlok();
 
   if (isRes) {
     html += `<div class="progress-wrap"><div class="progress-bar" style="width:${voortgang}%"></div></div>`;
@@ -1521,13 +1371,6 @@ function renderConductForm(inspectie) {
     <button class="fts-btn${isRes?' actief':''}" onclick="switchFormType('Residentieel')">Residentieel</button>
     <button class="fts-btn${!isRes?' actief':''}" onclick="switchFormType('Commercieel')">Commercieel</button>
   </div>`;
-
-  html += `<div class="pand-quicknote">
-    <label>Snelle opmerkingen</label>
-    <textarea placeholder="Wat valt je meteen op bij binnenkomst…" oninput="${pand.hoofdpand ? "setHoofdNotitie(this.value)" : `setPandNotitie(${currentPandIndex},this.value)`}">${esc(pand.hoofdpand ? (inspectie.notities||'') : (pand.notities||''))}</textarea>
-  </div>`;
-
-  html += renderFotoSectie(pand, currentPandIndex);
 
   if (isRes) {
     FLOW_RESIDENTIAL.forEach(sectie => { html += renderSectieAccordion(sectie); });
@@ -1539,15 +1382,23 @@ function renderConductForm(inspectie) {
     </div></div>`;
   }
 
-  html += `<div class="add-btn-wrap" style="display:flex;gap:8px;margin-top:24px">
-    <button class="btn btn-gray" style="flex:1" onclick="saveBevindingen('bezig').then(ok=>{if(ok)showSaveOk()})">💾 Opslaan</button>
-    <button class="btn btn-primary" style="flex:1" onclick="afrondenEnRapport()">📄 Rapport genereren</button>
+  html += `<div class="add-btn-wrap" style="display:flex;flex-direction:column;gap:8px;margin-top:24px">
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-gray" style="flex:1" onclick="saveBevindingen('bezig').then(ok=>{if(ok)showSaveOk()})">💾 Opslaan</button>
+      <button class="btn btn-gray" style="flex:1" onclick="opslaanEnAfsluiten()">✓ Opslaan &amp; afsluiten</button>
+    </div>
+    <button class="btn btn-primary btn-full" onclick="afrondenEnRapport()">📄 Rapport genereren</button>
   </div>`;
 
   document.getElementById('conduct-content').innerHTML = html;
-  // Open first (echte) sectie by default, Foto's blijft altijd open maar telt niet mee
-  const firstHdr = document.querySelector('#conduct-content .acc-section:not(.acc-section-fotos) .acc-header');
+  // Open eerste sectie standaard
+  const firstHdr = document.querySelector('#conduct-content .acc-header');
   if (firstHdr) { firstHdr.classList.add('open'); firstHdr.nextElementSibling.classList.add('open'); }
+}
+
+async function opslaanEnAfsluiten() {
+  const ok = await saveBevindingen('bezig');
+  if (ok) showScreen('overview');
 }
 
 function toggleAcc(hdr) {
@@ -1629,26 +1480,32 @@ async function saveBevindingen(rapportStatus='bezig') {
       }
     });
   });
-  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
   const payload = {
-    bevindingen: currentPanden[0].bevindingen,
-    fotos: currentPanden[0].fotos || [],
-    panden: currentPanden.slice(1),
+    bevindingen: currentBevData,
+    bezochte_adressen: currentBezochtAdressen,
     rapport_status: rapportStatus,
-    dossiernummer: currentPanden[0].bevindingen.dossiernummer || null,
-    flow_id: currentPanden[0].bevindingen.flow_id || null,
-    vastgoed_type: currentPanden[0].vastgoedType || 'Residentieel',
+    dossiernummer: currentBevData.dossiernummer || null,
+    flow_id: currentBevData.flow_id || null,
+    vastgoed_type: currentVastgoedType || 'Residentieel',
   };
-  if (inspectie && inspectie.notities !== undefined) payload.notities = inspectie.notities || '';
   const { error }=await db.from('inspecties').update(payload).eq('id',currentBevindingId);
   const s = document.getElementById('conduct-save-status');
   if (error) {
     console.error('Save fout:', error);
     if (s) { s.textContent = '✗ Opslaan mislukt'; s.style.color = 'var(--red)'; }
-    alert('Opslaan is mislukt.\n\nFoutmelding van Supabase:\n' + error.message + '\n\nDit betekent meestal dat een kolom nog ontbreekt in de tabel "inspecties" (zoals "panden" of "fotos"). Zie de SQL-instructie bovenin dit bestand.');
+    alert('Opslaan is mislukt.\n\nFoutmelding van Supabase:\n' + error.message + '\n\nDit betekent meestal dat de kolom "bezochte_adressen" nog ontbreekt in de tabel "inspecties". Zie de SQL-instructie bovenin dit bestand.');
     return false;
   }
   if (s) s.style.color = '';
+  // Lokale state alvast bijwerken zodat een her-render (bv. de lijst) meteen klopt,
+  // ook al voordat de volgende volledige data-ververing binnenkomt.
+  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
+  if (inspectie) {
+    inspectie.bevindingen = currentBevData;
+    inspectie.bezochtAdressen = currentBezochtAdressen.map(a=>({...a}));
+    inspectie.rapportStatus = rapportStatus;
+    inspectie.vastgoedType = currentVastgoedType;
+  }
   return true;
 }
 
@@ -1752,34 +1609,12 @@ function genereerRapport(inspectieOrId) {
     });
     return html;
   }
-  function fotoGalleryHtml(fotos) {
-    if (!fotos || !fotos.length) return '';
-    return `<h2>Foto's</h2><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6pt;margin-bottom:12pt">${fotos.map(f=>`<img src="${ht(f.url)}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6pt;border:0.5pt solid #D7DED7;-webkit-print-color-adjust:exact;print-color-adjust:exact">`).join('')}</div>`;
-  }
   const detailHtml = bouwDetailHtml(bev);
 
   const eq_loc = bev.final_assessment_location, eq_int = bev.final_assessment_interior, eq_ext = bev.final_assessment_exterior, eq_toe = bev.final_assessment_explanation;
   const typeW = (bev.multi_family_dwellings||'').startsWith('MGW') ? bev.type_residential_appartment : bev.type_residential_house;
   const hasMap = !!(inspectie.lat && inspectie.lng);
-
-  // ── Extra panden (naast het hoofdpand) ──
-  const extraPanden = inspectie.panden || [];
-  const extraMapDefs = [];
-  let extraPandenHtml = '';
-  extraPanden.forEach((p, idx) => {
-    const pDetail = bouwDetailHtml(p.bevindingen || {});
-    const pHasMap = !!(p.lat && p.lng);
-    const idClose = `rp-map-close-x${idx}`, idWide = `rp-map-wide-x${idx}`;
-    if (pHasMap) extraMapDefs.push({ idClose, idWide, lat:p.lat, lng:p.lng });
-    extraPandenHtml += `
-    <hr class="rh-rule" style="margin-top:26pt">
-    <div class="rh-label">Pand ${idx+2}</div>
-    <div class="rh-addr" style="font-size:15pt;font-weight:700;margin-bottom:10pt">${ht(p.adres||'—')}</div>
-    ${p.notities?`<div class="note-block">${ht(p.notities)}</div>`:''}
-    ${pHasMap?`<div class="rp-maps"><div id="${idClose}" class="rp-map"></div><div id="${idWide}" class="rp-map"></div></div><div class="rp-mapattr">© OpenStreetMap-bijdragers, © CARTO</div>`:''}
-    ${fotoGalleryHtml(p.fotos)}
-    ${pDetail}`;
-  });
+  const bezochtAdressen = inspectie.bezochtAdressen || [];
 
   const html = `<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><title>Inspectierapport – ${ht(inspectie.adres)}</title>
 ${hasMap ? '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">' : ''}
@@ -1860,7 +1695,7 @@ section{margin-bottom:4pt;}
 
   ${hasMap ? `<div class="rp-maps"><div id="rp-map-close" class="rp-map"></div><div id="rp-map-wide" class="rp-map"></div></div><div class="rp-mapattr">© OpenStreetMap-bijdragers, © CARTO</div>` : ''}
 
-  ${fotoGalleryHtml(inspectie.fotos)}
+  ${bezochtAdressen.length?`<div class="note-block"><strong>Ook binnen geweest bij:</strong> ${bezochtAdressen.map(a=>ht(a.adres)).join(', ')}</div>`:''}
 
   ${(eq_loc||eq_int||eq_ext)?`
   <h2>Eindkwalificatie</h2>
@@ -1873,25 +1708,20 @@ section{margin-bottom:4pt;}
 
   ${detailHtml?`<h2>Bevindingen</h2>${detailHtml}`:''}
 
-  ${extraPandenHtml}
-
   <div class="foot">
-    <span>Savills Nederland – Team Valuation${extraPanden.length?` · ${extraPanden.length+1} panden geïnspecteerd`:''}</span>
+    <span>Savills Nederland – Team Valuation</span>
     <span>${bev.flow_id?'FLOW ID: '+ht(bev.flow_id):''}</span>
   </div>
 </div>
-${(hasMap || extraMapDefs.length) ? `<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
+${hasMap ? `<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
 <script>
   window.addEventListener('load', function() {
     var tiles='${cartoTiles()}';
     var opts={ zoomControl:false, scrollWheelZoom:false, dragging:false, keyboard:false, doubleClickZoom:false, touchZoom:false, attributionControl:false };
     var marker={ radius:7, fillColor:'#097CE8', color:'white', weight:2.5, fillOpacity:1 };
-    function tekenKaartPaar(idClose, idWide, lat, lng) {
-      var m1=L.map(idClose,opts); L.tileLayer(tiles,{maxZoom:20,subdomains:'abcd'}).addTo(m1); m1.setView([lat,lng],16); L.circleMarker([lat,lng],marker).addTo(m1);
-      var m2=L.map(idWide,opts); L.tileLayer(tiles,{maxZoom:20,subdomains:'abcd'}).addTo(m2); m2.setView([lat,lng],9); L.circleMarker([lat,lng],marker).addTo(m2);
-    }
-    ${hasMap ? `tekenKaartPaar('rp-map-close','rp-map-wide',${inspectie.lat},${inspectie.lng});` : ''}
-    ${extraMapDefs.map(m => `tekenKaartPaar('${m.idClose}','${m.idWide}',${m.lat},${m.lng});`).join('\n    ')}
+    var lat=${inspectie.lat}, lng=${inspectie.lng};
+    var m1=L.map('rp-map-close',opts); L.tileLayer(tiles,{maxZoom:20,subdomains:'abcd'}).addTo(m1); m1.setView([lat,lng],16); L.circleMarker([lat,lng],marker).addTo(m1);
+    var m2=L.map('rp-map-wide',opts); L.tileLayer(tiles,{maxZoom:20,subdomains:'abcd'}).addTo(m2); m2.setView([lat,lng],9); L.circleMarker([lat,lng],marker).addTo(m2);
   });
 <\/script>` : ''}
 </body></html>`;
@@ -1906,7 +1736,7 @@ ${(hasMap || extraMapDefs.length) ? `<script src="https://unpkg.com/leaflet@1.9.
 function bouwInspectieSheet(insp) {
   const bev  = insp.bevindingen || {};
   const taxateur = (state.inspecteurs.find(x=>x.id===insp.inspecteurId)||{}).naam || '—';
-  const panden = (insp.panden && insp.panden.length) ? insp.panden : null;
+  const bezochtAdressen = insp.bezochtAdressen || [];
 
   function veldWaarde(veld, bron) {
     const v = bron[veld.id];
@@ -1927,7 +1757,7 @@ function bouwInspectieSheet(insp) {
   rows.push(['Dossiernummer', insp.dossiernummer || '']);
   rows.push(['FLOW ID', insp.flowId || '']);
   rows.push(['Opmerkingen', insp.notities || '']);
-  if (panden) rows.push(['Aantal panden', String(panden.length)]);
+  if (bezochtAdressen.length) rows.push(['Ook binnen geweest bij', bezochtAdressen.map(a=>a.adres).join(', ')]);
 
   function schrijfBevindingen(bron) {
     FLOW_RESIDENTIAL.forEach(sectie => {
@@ -1945,17 +1775,7 @@ function bouwInspectieSheet(insp) {
     });
   }
 
-  if (panden) {
-    panden.forEach((pand, idx) => {
-      rows.push(['']);
-      rows.push([`━━ Pand ${idx+1}: ${pand.adres||'—'} ━━`, '']);
-      if (pand.notities) rows.push(['Opmerkingen (pand)', pand.notities]);
-      if (pand.fotos && pand.fotos.length) rows.push(['Foto\'s', pand.fotos.map(f=>f.url).join(' | ')]);
-      schrijfBevindingen(pand.bevindingen || {});
-    });
-  } else {
-    schrijfBevindingen(bev);
-  }
+  schrijfBevindingen(bev);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
 
@@ -1994,6 +1814,7 @@ let alleBulkSelected = new Set();
 function toggleAlleBulkMode() {
   alleBulkMode = !alleBulkMode;
   alleBulkSelected.clear();
+  alleSelectedId = null;
   const btn = document.getElementById('alle-bulk-toggle-btn');
   btn.textContent = alleBulkMode ? 'Klaar' : 'Selecteren';
   btn.classList.toggle('bulk-actief', alleBulkMode);
@@ -2013,6 +1834,12 @@ function updateAlleBulkActionBar() {
 function bulkDownloadExcelAlle() { bulkDownloadExcelFrom(alleBulkSelected); }
 function bulkAddToAgendaAlle() { bulkAddToAgendaFrom(alleBulkSelected); }
 
+let alleSelectedId = null;
+function selectInspectieAlle(id) {
+  alleSelectedId = (alleSelectedId===id) ? null : id;
+  renderAlleTabel();
+}
+
 function renderAlleTabel() {
   const zoekterm = (document.getElementById('alle-zoek')?.value || '').toLowerCase().trim();
   let sorted = [...state.inspecties].sort((a,b)=>a.datum.localeCompare(b.datum));
@@ -2022,12 +1849,6 @@ function renderAlleTabel() {
       return (i.adres||'').toLowerCase().includes(zoekterm) || (insp?.naam||'').toLowerCase().includes(zoekterm);
     });
   }
-  function esc(t) { return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function sbadge(s) {
-    const m={afgerond:['#EBF5EE','#237A45','✓ Afgerond'],bezig:['#FCF0E6','#EF6B00','⏳ Bezig'],gepland:['#F5F2F0','#79828C','Gepland']};
-    const [bg,fg,lbl]=m[s]||m.gepland;
-    return `<span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap;background:${bg};color:${fg};font-family:'Barlow',sans-serif">${lbl}</span>`;
-  }
 
   if (!sorted.length) {
     document.getElementById('alle-insp-inhoud').innerHTML = '<div class="empty">Geen inspecties gevonden.</div>';
@@ -2035,33 +1856,12 @@ function renderAlleTabel() {
     return;
   }
 
-  const kaarten = sorted.map(i => {
-    const insp = state.inspecteurs.find(x=>x.id===i.inspecteurId);
-    const isAfgerond = i.rapportStatus==='afgerond';
-    const pandenCount = (i.panden && i.panden.length) ? i.panden.length + 1 : 1;
-    const checked = alleBulkSelected.has(i.id);
-    const clickHandler = alleBulkMode ? `toggleAlleBulkSelect(${i.id})` : `showScreen('overview');selectInspectie(${i.id})`;
-    const checkbox = alleBulkMode ? `<div class="bulk-checkbox${checked?' checked':''}">${checked?'✓':''}</div>` : '';
-    return `<div class="card${alleBulkMode?' bulk-row':''}" style="${alleBulkMode?'padding-left:42px;position:relative':''}" onclick="${clickHandler}">
-      ${checkbox}
-      <div class="card-top">
-        <div class="card-address">${esc(i.adres)}</div>
-        <div class="card-date">${formatDatum(i.datum)}</div>
-      </div>
-      <div class="card-meta">
-        <span style="font-size:14px;line-height:1">${insp?(insp.emoji||'👤'):'👤'}</span>
-        <span>${esc(insp?insp.naam:'—')}</span>
-        <span>·</span><span>${i.tijd}</span>
-        ${sbadge(i.rapportStatus||'gepland')}
-        ${pandenCount>1?`<span class="badge badge-gray">🏠 ${pandenCount} panden</span>`:''}
-      </div>
-      ${!alleBulkMode?`<div class="card-actions" onclick="event.stopPropagation()">
-        ${isAfgerond?`<button class="btn btn-sm btn-primary" onclick="genereerRapport(${i.id})">📄 Rapport</button>`:''}
-        <button class="btn btn-sm btn-gray" onclick="exportInspectieExcel(${i.id})">⬇️ XLS</button>
-        <button class="btn btn-sm btn-gray" onclick="showScreen('overview');selectInspectie(${i.id})">← Bewerken</button>
-      </div>`:''}
-    </div>`;
-  }).join('');
+  const kaarten = sorted.map(i => bouwInspectieKaart(i, {
+    selected: !alleBulkMode && alleSelectedId===i.id,
+    bulkModeActief: alleBulkMode,
+    bulkChecked: alleBulkSelected.has(i.id),
+    onClick: alleBulkMode ? `toggleAlleBulkSelect(${i.id})` : `selectInspectieAlle(${i.id})`,
+  })).join('');
 
   document.getElementById('alle-insp-inhoud').innerHTML = `
     <div style="font-size:13px;color:var(--gray);margin-bottom:10px">${sorted.length} inspectie${sorted.length===1?'':'s'}</div>
