@@ -129,7 +129,7 @@ html,body{
 .ov-list::-webkit-scrollbar{display:none;}
 
 /* CARDS */
-.card{background:var(--surface);border-radius:14px;margin-bottom:8px;padding:13px 14px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.06),0 0 0 0.5px rgba(0,0,0,.05);transition:box-shadow .15s,transform .1s;border-left:3px solid transparent;}
+.card{background:var(--surface);border-radius:14px;margin-bottom:8px;padding:13px 14px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.06),0 0 0 0.5px rgba(0,0,0,.05);transition:box-shadow .15s,transform .1s;}
 .card:active{transform:scale(0.99);}
 .card.selected{box-shadow:0 0 0 2px var(--blue),0 4px 16px rgba(9,124,232,0.15);}
 .card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
@@ -216,6 +216,9 @@ html,body{
 .flow-score-btn[data-s="Voldoende"].actief{background:#FEDF00;border-color:#FEDF00;color:#25273A;}
 .flow-score-btn[data-s="Goed"].actief{background:#3AA95C;border-color:#3AA95C;color:white;}
 .flow-score-btn[data-s="Uitstekend"].actief{background:#097CE8;border-color:#097CE8;color:white;}
+.flow-score-btn[data-s="Gedateerd"].actief{background:#CE181E;border-color:#CE181E;color:white;}
+.flow-score-btn[data-s="Basis"].actief{background:#EF6B00;border-color:#EF6B00;color:white;}
+.flow-score-btn[data-s="Standaard"].actief{background:#FEDF00;border-color:#FEDF00;color:#25273A;}
 .flow-pills-row{flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px;}
 .pill-group{display:flex;flex-wrap:wrap;gap:6px;}
 .pill-btn{padding:5px 13px;border:1.5px solid var(--gray2);border-radius:99px;font-size:13px;font-weight:500;cursor:pointer;background:white;color:var(--text2);transition:all .1s;font-family:inherit;line-height:1.4;}
@@ -235,7 +238,7 @@ html,body{
 .login-logo{width:72px;height:72px;border-radius:0;margin-bottom:16px;}
 .login-title{font-size:22px;font-weight:700;letter-spacing:-0.4px;color:var(--text);margin-bottom:4px;}
 .login-sub{font-size:14px;color:var(--gray);margin-bottom:32px;}
-.login-card{width:100%;max-width:340px;background:var(--surface);border-radius:14px;box-shadow:0 2px 16px rgba(0,0,0,.08);border-top:3px solid var(--yellow);}
+.login-card{width:100%;max-width:340px;background:var(--surface);border-radius:14px;box-shadow:0 2px 16px rgba(0,0,0,.08);}
 .login-field{display:flex;flex-direction:column;padding:13px 16px;border-bottom:0.5px solid var(--sep);}
 .login-field:last-of-type{border-bottom:none;}
 .login-field label{font-size:12px;color:var(--gray);margin-bottom:4px;font-weight:500;}
@@ -419,13 +422,25 @@ html,body{
 </div>
 
 <!-- ══ OVERLAY: ALLE INSPECTIES ══ -->
-<div id="alle-insp-overlay" class="hidden" style="position:fixed;inset:0;z-index:300;background:white;display:flex;flex-direction:column;">
+<!-- ══ SCREEN: ALLE INSPECTIES ══ -->
+<div class="screen hidden" id="screen-alle">
   <div class="nav-bar">
     <svg class="nav-logo"><use href="#savills-sym"/></svg>
     <span class="nav-bar-title" style="flex:1">Alle inspecties</span>
-    <button onclick="sluitInspectiesTabel()" class="btn btn-sm btn-gray" style="font-size:12px">Sluiten</button>
+    <button class="btn btn-sm btn-gray bulk-toggle-btn" id="alle-bulk-toggle-btn" onclick="toggleAlleBulkMode()">Selecteren</button>
   </div>
-  <div id="alle-insp-inhoud" style="flex:1;overflow-y:auto;padding:24px 28px 48px;"></div>
+  <div style="padding:10px 16px 0">
+    <div class="srch-inner">
+      <svg class="srch-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="alle-zoek" placeholder="Zoek op adres of taxateur…" oninput="renderAlleTabel()" style="border:none;background:transparent;outline:none;font-size:16px;font-family:inherit;flex:1;color:var(--text)">
+    </div>
+  </div>
+  <div id="alle-insp-inhoud" style="flex:1;overflow-y:auto;padding:14px 16px 90px"></div>
+  <div class="bulk-action-bar" id="alle-bulk-action-bar">
+    <span class="bulk-action-count" id="alle-bulk-action-count">0 geselecteerd</span>
+    <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkDownloadExcelAlle()">⬇️ Downloaden</button>
+    <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkAddToAgendaAlle()">📅 Agenda</button>
+  </div>
 </div>
 
 <!-- ══ SCREEN: OVERZICHT ══ -->
@@ -442,7 +457,6 @@ html,body{
       </button>
     </div>
     <button class="btn btn-sm btn-gray bulk-toggle-btn" id="bulk-toggle-btn" onclick="toggleBulkMode()" style="margin-left:6px">Selecteren</button>
-    <button onclick="toonInspectiesTabel()" class="btn btn-sm btn-tinted" style="font-size:13px;margin-left:6px">📋 Alle</button>
   </div>
   <div class="overview-body" id="overview-body">
     <div class="overview-panel">
@@ -557,6 +571,10 @@ html,body{
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
     Overzicht
   </button>
+  <button class="tab-item" onclick="showScreen('alle')">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5h18v2H3V5zm0 6h18v2H3v-2zm0 6h18v2H3v-2z"/></svg>
+    Alle
+  </button>
   <button class="tab-item" onclick="showScreen('team')">
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
     Team
@@ -585,23 +603,23 @@ const FLOW_RESIDENTIAL = [
       { id:'dossiernummer',                label:'Dossiernummer',             type:'text' },
       { id:'flow_id',                      label:'FLOW ID',                   type:'text' },
       { id:'inspection_date',              label:'Inspectiedatum',            type:'date' },
-      { id:'multi_family_dwellings',       label:'Type woning',               type:'dropdown', opties:['EGW – Eengezinswoning','MGW – Meergezinswoning'] },
-      { id:'responsible_rt_valuer_name',   label:'Verantwoordelijk taxateur', type:'dropdown', opties:'inspecteurs' },
+      { id:'multi_family_dwellings',       label:'Type woning',               type:'pillSelect', opties:['EGW – Eengezinswoning','MGW – Meergezinswoning'] },
+      { id:'responsible_rt_valuer_name',   label:'Verantwoordelijk taxateur', type:'pillSelect', opties:'inspecteurs' },
       { id:'client_name',                  label:'Opdrachtgever',             type:'text' },
-      { id:'inspection_type',              label:'Type inspectie',            type:'dropdown', opties:['Volledig','Drive-by'] },
+      { id:'inspection_type',              label:'Type inspectie',            type:'pillSelect', opties:['Volledig','Drive-by'] },
       { id:'remarks_object_general',       label:'Opmerkingen',               type:'textarea' },
     ]
   },
   {
     id:'sec_locatie', titel:'Locatie', icon:'📍',
     velden:[
-      { id:'area_type',                        label:'Type gebied',                type:'dropdown', opties:['Centrum','Stedelijk','Randstedelijk','Suburbaan','Landelijk / Buiten'] },
-      { id:'accessibility_car',                label:'Bereikbaarheid auto',        type:'dropdown', opties:BEREIK },
-      { id:'accessibility_public_transport',   label:'Bereikbaarheid OV',          type:'dropdown', opties:BEREIK },
-      { id:'type_of_parking_spaces',           label:'Type parkeren',              type:'dropdown', opties:['Geen','Op straat','Eigen oprit','Carport','Garage','Parkeergarage'] },
+      { id:'area_type',                        label:'Type gebied',                type:'pillSelect', opties:['Centrum','Stedelijk','Randstedelijk','Suburbaan','Landelijk / Buiten'] },
+      { id:'accessibility_car',                label:'Bereikbaarheid auto',        type:'scoreButtons', opties:BEREIK },
+      { id:'accessibility_public_transport',   label:'Bereikbaarheid OV',          type:'scoreButtons', opties:BEREIK },
+      { id:'type_of_parking_spaces',           label:'Type parkeren',              type:'pillSelect', opties:['Geen','Op straat','Eigen oprit','Carport','Garage','Parkeergarage'] },
       { id:'parking_count',    label:'Aantal parkeerplaatsen', type:'integer',  conditie:{ veld:'type_of_parking_spaces', niet:'Geen' } },
       { id:'parking_tariff',   label:'Parkeertarief (€/mnd)', type:'decimal',  conditie:{ veld:'type_of_parking_spaces', is:'Parkeergarage' } },
-      { id:'asset_integrated_in_area', label:'Object past in omgeving', type:'dropdown', opties:BEREIK },
+      { id:'asset_integrated_in_area', label:'Object past in omgeving', type:'scoreButtons', opties:BEREIK },
       { id:'adjoining_parcels',        label:'Aangrenzende percelen',   type:'text' },
       { id:'remarks_location',         label:'Opmerkingen locatie',    type:'textarea' },
     ]
@@ -609,15 +627,15 @@ const FLOW_RESIDENTIAL = [
   {
     id:'sec_gebruik', titel:'Gebruik', icon:'🔑',
     velden:[
-      { id:'ownership_lease_type', label:'Eigendom / pacht type', type:'dropdown', opties:['Eigendom','Erfpacht','Huur','Anders'] },
+      { id:'ownership_lease_type', label:'Eigendom / pacht type', type:'pillSelect', opties:['Eigendom','Erfpacht','Huur','Anders'] },
       { id:'remarks_property_use', label:'Opmerkingen gebruik',   type:'textarea' },
     ]
   },
   {
     id:'sec_objectomschrijving', titel:'Object omschrijving', icon:'🏘️',
     velden:[
-      { id:'type_residential_house',       label:'Type woning (EGW)',      type:'dropdown', opties:['Vrijstaand','2-onder-1-kap','Rijwoning','Eindwoning','Hoekwoning','Bungalow'], conditie:{ veld:'multi_family_dwellings', begintMet:'EGW' } },
-      { id:'type_residential_appartment',  label:'Type woning (MGW)',      type:'dropdown', opties:['Appartement','Maisonnette','Duplex','Penthouse','Studio','Bovenwoning','Benedenwoning'], conditie:{ veld:'multi_family_dwellings', begintMet:'MGW' } },
+      { id:'type_residential_house',       label:'Type woning (EGW)',      type:'pillSelect', opties:['Vrijstaand','2-onder-1-kap','Rijwoning','Eindwoning','Hoekwoning','Bungalow'], conditie:{ veld:'multi_family_dwellings', begintMet:'EGW' } },
+      { id:'type_residential_appartment',  label:'Type woning (MGW)',      type:'pillSelect', opties:['Appartement','Maisonnette','Duplex','Penthouse','Studio','Bovenwoning','Benedenwoning'], conditie:{ veld:'multi_family_dwellings', begintMet:'MGW' } },
       { id:'selfcontaining_units',         label:'Aantal zelfstandige eenheden', type:'integer' },
       { id:'construction_year_completion', label:'Bouwjaar',               type:'year' },
       { id:'last_renovation_year',         label:'Jaar laatste renovatie', type:'year' },
@@ -629,19 +647,19 @@ const FLOW_RESIDENTIAL = [
     id:'sec_binnenzijde', titel:'Object binnenzijde', icon:'🛋️',
     conditieSectie:{ veld:'inspection_type', is:'Volledig' },
     velden:[
-      { id:'quality_of_interior_finishing', label:'Kwaliteit afwerking interieur', type:'dropdown', opties:KWALITEIT },
+      { id:'quality_of_interior_finishing', label:'Kwaliteit afwerking interieur', type:'scoreButtons', opties:KWALITEIT },
       { id:'interior_finishing',            label:'Afwerkingsniveau beschrijving', type:'textarea' },
       { id:'number_of_rooms',              label:'Aantal kamers',                 type:'integer' },
-      { id:'ventilation',                  label:'Ventilatie',                    type:'dropdown', opties:['Geen / Onbekend','Natuurlijk','Mechanisch','Gebalanceerd (WTW)'] },
+      { id:'ventilation',                  label:'Ventilatie',                    type:'pillSelect', opties:['Geen / Onbekend','Natuurlijk','Mechanisch','Gebalanceerd (WTW)'] },
       { id:'elevator',                     label:'Lift aanwezig',                 type:'checkbox' },
-      { id:'lift_type',    label:'Type lift',              type:'dropdown', opties:['Personenlift','Goederenlift','Traplift'], conditie:{ veld:'elevator', is:true } },
+      { id:'lift_type',    label:'Type lift',              type:'pillSelect', opties:['Personenlift','Goederenlift','Traplift'], conditie:{ veld:'elevator', is:true } },
       { id:'lift_count',   label:'Aantal liften',          type:'integer',  conditie:{ veld:'elevator', is:true } },
       { id:'brandpreventie', label:'Brandpreventie',        type:'checkboxGroup', opties:['Brandmelder','Sprinkler','Branddeuren','Blusmiddelen','Noodverlichting','Geen'] },
       { id:'veiligheid',   label:'Veiligheid',              type:'checkboxGroup', opties:['Videofoon','Toegangscontrole','Cameratoezicht','Alarminstallatie','Geen'] },
       { id:'verwarming',   label:'Verwarming',              type:'checkboxGroup', opties:['CV-ketel','Warmtepomp','Stadsverwarming','Vloerverwarming','Elektrisch','Geen'] },
       { id:'interior_damaged',         label:'Schade aanwezig (interieur)',  type:'checkbox' },
       { id:'interior_damaged_remarks', label:'Omschrijving schade',          type:'textarea', conditie:{ veld:'interior_damaged', is:true } },
-      { id:'interior_maintenance_assessment', label:'Onderhoudsstaat interieur', type:'dropdown', opties:BEREIK },
+      { id:'interior_maintenance_assessment', label:'Onderhoudsstaat interieur', type:'scoreButtons', opties:BEREIK },
       { id:'remarks_interior',         label:'Opmerkingen interieur',        type:'textarea' },
     ]
   },
@@ -650,18 +668,18 @@ const FLOW_RESIDENTIAL = [
     velden:[
       { id:'construction', label:'Constructie',     type:'checkboxGroup', opties:['Beton','Staal','Hout','Baksteen','Kalkzandsteen','Gemengd','Anders'] },
       { id:'facades',      label:'Gevelbekleding',  type:'checkboxGroup', opties:['Baksteen','Metselwerk gevoegd','Metselwerk geschilderd','Stucwerk','Houten gevelbetimmering','Kunststof gevelbekleding','Metalen gevelbekleding','Composiet','Glas','Betonpanelen','Zandsteenplaten','Hardsteen','Spouw / geïsoleerd','Anders'] },
-      { id:'frames',       label:'Kozijnen',         type:'dropdown', opties:['Hout','Kunststof','Aluminium','Staal','Anders'] },
-      { id:'glazing',      label:'Beglazing',        type:'dropdown', opties:['Enkel','Dubbel','HR','HR+','HR++','Triple'] },
-      { id:'roof_shape',   label:'Dakvorm',          type:'dropdown', opties:['Plat dak','Lessenaarsdak','Zadeldak','Schilddak','Mansardedak','Tentdak','Wolfsdak','Samengesteld','Puntdak','Tongewelf','Koepel','Bergnok','Anders'] },
-      { id:'roof_construction', label:'Dakconstructie', type:'dropdown', opties:['Hout','Staal','Beton','Anders'] },
-      { id:'roofing',      label:'Dakbedekking',     type:'dropdown', opties:['Bitumen','EPDM','PVC','Dakpannen','Leien','Zink','Koper','Golfplaten','Riet','Groen dak','Anders'] },
-      { id:'foundation',   label:'Fundering',        type:'dropdown', opties:['Houten palen','Betonnen palen','Stalen palen','Op staal','Kellerbouw','Onbekend'] },
+      { id:'frames',       label:'Kozijnen',         type:'checkboxGroup', opties:['Hout','Kunststof','Aluminium','Staal','Anders'] },
+      { id:'glazing',      label:'Beglazing',        type:'checkboxGroup', opties:['Enkel','Dubbel','HR','HR+','HR++','Triple'] },
+      { id:'roof_shape',   label:'Dakvorm',          type:'pillSelect', opties:['Plat dak','Lessenaarsdak','Zadeldak','Schilddak','Mansardedak','Tentdak','Wolfsdak','Samengesteld','Puntdak','Tongewelf','Koepel','Bergnok','Anders'] },
+      { id:'roof_construction', label:'Dakconstructie', type:'checkboxGroup', opties:['Hout','Staal','Beton','Anders'] },
+      { id:'roofing',      label:'Dakbedekking',     type:'checkboxGroup', opties:['Bitumen','EPDM','PVC','Dakpannen','Leien','Zink','Koper','Golfplaten','Riet','Groen dak','Anders'] },
+      { id:'foundation',   label:'Fundering',        type:'checkboxGroup', opties:['Houten palen','Betonnen palen','Stalen palen','Op staal','Kellerbouw','Onbekend'] },
       { id:'storage_units_residential', label:'Bergingen aanwezig', type:'checkbox' },
       { id:'storage_sqm',  label:'Berging oppervlak (m²)', type:'decimal',   conditie:{ veld:'storage_units_residential', is:true } },
-      { id:'storage_type', label:'Type berging',           type:'dropdown',  opties:['Berging','Garage','Schuur','Kelder'], conditie:{ veld:'storage_units_residential', is:true } },
+      { id:'storage_type', label:'Type berging',           type:'pillSelect',  opties:['Berging','Garage','Schuur','Kelder'], conditie:{ veld:'storage_units_residential', is:true } },
       { id:'exterior_damaged',         label:'Schade aanwezig (exterieur)',  type:'checkbox' },
       { id:'exterior_damaged_remarks', label:'Omschrijving schade',          type:'textarea', conditie:{ veld:'exterior_damaged', is:true } },
-      { id:'exterior_maintenance_assessment', label:'Onderhoudsstaat exterieur', type:'dropdown', opties:BEREIK },
+      { id:'exterior_maintenance_assessment', label:'Onderhoudsstaat exterieur', type:'scoreButtons', opties:BEREIK },
       { id:'remarks_exterior',         label:'Opmerkingen exterieur',        type:'textarea' },
     ]
   },
@@ -670,17 +688,17 @@ const FLOW_RESIDENTIAL = [
     velden:[
       { id:'outdoor_spaces',  label:'Buitenruimten',        type:'checkboxGroup', opties:['Geen','Tuin','Balkon','Dakterras','Terras','Loggia'] },
       { id:'private_outdoor', label:'Privé buitenruimte',   type:'checkbox' },
-      { id:'outdoor_type',    label:'Type buitenruimte',    type:'dropdown', opties:['Voortuin','Achtertuin','Zijtuin','Daktuin','Balkon','Terras','Gemeenschappelijk'], conditie:{ veld:'private_outdoor', is:true } },
+      { id:'outdoor_type',    label:'Type buitenruimte',    type:'pillSelect', opties:['Voortuin','Achtertuin','Zijtuin','Daktuin','Balkon','Terras','Gemeenschappelijk'], conditie:{ veld:'private_outdoor', is:true } },
       { id:'outdoor_sqm',     label:'Oppervlak (m²)',       type:'decimal',  conditie:{ veld:'private_outdoor', is:true } },
-      { id:'outdoor_maintenance', label:'Onderhoudsstaat',  type:'dropdown', opties:BEREIK, conditie:{ veld:'private_outdoor', is:true } },
+      { id:'outdoor_maintenance', label:'Onderhoudsstaat',  type:'scoreButtons', opties:BEREIK, conditie:{ veld:'private_outdoor', is:true } },
       { id:'remarks_outdoor', label:'Opmerkingen buitenruimte', type:'textarea' },
     ]
   },
   {
     id:'sec_duurzaamheid', titel:'Duurzaamheid', icon:'♻️',
     velden:[
-      { id:'build_quality',       label:'Bouwkwaliteit',       type:'dropdown', opties:BEREIK },
-      { id:'energy_label',        label:'Energielabel',        type:'dropdown', opties:['A++++','A+++','A++','A+','A','B','C','D','E','F','G','Onbekend'] },
+      { id:'build_quality',       label:'Bouwkwaliteit',       type:'scoreButtons', opties:BEREIK },
+      { id:'energy_label',        label:'Energielabel',        type:'pillSelect', opties:['A++++','A+++','A++','A+','A','B','C','D','E','F','G','Onbekend'] },
       { id:'largely_sustainable', label:'Grotendeels duurzaam', type:'checkbox' },
       { id:'remarks_sustainability', label:'Opmerkingen duurzaamheid', type:'textarea' },
     ]
@@ -754,6 +772,8 @@ function setSyncStatus(s) {
   ['sync-label','sync-label-team'].forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=map[s]||''; });
 }
 
+let routedFromUrl = false;
+
 async function laadData() {
   setSyncStatus('verbinden');
   const [{ data: inspecteurs, error: e1 }, { data: inspecties, error: e2 }] = await Promise.all([
@@ -764,8 +784,24 @@ async function laadData() {
   state.inspecteurs = inspecteurs || [];
   state.inspecties  = (inspecties || []).map(i => ({ ...i, inspecteurId: i.inspecteur_id, bevindingen: i.bevindingen || {}, rapportStatus: i.rapport_status || 'gepland', vastgoedType: i.vastgoed_type || 'Residentieel', dossiernummer: i.dossiernummer || '', flowId: i.flow_id || '', panden: i.panden || [], fotos: i.fotos || [] }));
   state.selectedId  = null;
-  renderTeam(); renderMarkers(); renderLijst();
+  renderTeam(); renderMarkers(); renderLijst(); renderAlleTabel();
   setSyncStatus('verbonden');
+  if (!routedFromUrl) { routedFromUrl = true; routeVanuitUrl(); }
+}
+
+// ─── URL-ROUTERING OP DOSSIERNUMMER ──────────────────────────────────────────
+// Werkt via de _redirects (Netlify: "/*  /index.html  200"), die elk pad laat
+// terugvallen op deze pagina. Wij lezen daarna zelf het pad uit de adresbalk.
+function routeVanuitUrl() {
+  const pad = decodeURIComponent(window.location.pathname.replace(/^\/+|\/+$/g, ''));
+  if (!pad || pad.toLowerCase() === 'index.html') return;
+  const gevonden = state.inspecties.find(i => (i.dossiernummer||'').toLowerCase() === pad.toLowerCase());
+  if (gevonden) {
+    showScreen('overview');
+    setTimeout(() => selectInspectie(gevonden.id), 300);
+  } else {
+    console.warn('Geen inspectie gevonden met dossiernummer in URL:', pad);
+  }
 }
 
 db.channel('sync')
@@ -866,8 +902,8 @@ function updateBulkActionBar() {
   bar.classList.toggle('show', bulkMode && n>0);
   document.getElementById('bulk-action-count').textContent = `${n} geselecteerd`;
 }
-function bulkDownloadExcel() {
-  const ids=[...bulkSelected]; if(!ids.length) return;
+function bulkDownloadExcelFrom(idSet) {
+  const ids=[...idSet]; if(!ids.length) return;
   const wb = XLSX.utils.book_new();
   const usedNamen = new Set();
   ids.forEach(id => {
@@ -880,11 +916,13 @@ function bulkDownloadExcel() {
   });
   XLSX.writeFile(wb, `Inspecties_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
-function bulkAddToAgenda() {
-  const ids=[...bulkSelected]; if(!ids.length) return;
+function bulkAddToAgendaFrom(idSet) {
+  const ids=[...idSet]; if(!ids.length) return;
   if (ids.length>5 && !confirm(`${ids.length} tabbladen openen?`)) return;
   ids.forEach((id,idx)=>setTimeout(()=>openInOutlook(id),idx*400));
 }
+function bulkDownloadExcel() { bulkDownloadExcelFrom(bulkSelected); }
+function bulkAddToAgenda() { bulkAddToAgendaFrom(bulkSelected); }
 
 // ─── INSTELLINGEN ────────────────────────────────────────────────────────────
 function openInstellingen() { document.getElementById('settings-overlay').classList.remove('hidden'); renderCartoKey(); }
@@ -935,7 +973,14 @@ async function voegToe() {
   }
 }
 async function verwijderInspectie(id) { if(!confirm('Inspectie verwijderen?')) return; await dbVerwijderInspectie(id); state.selectedId=null; }
-function selectInspectie(id) { if(state.selectedId===id){state.selectedId=null;renderLijst();return;} state.selectedId=id; renderLijst(); const i=state.inspecties.find(x=>x.id===id); if(i&&markers[id]&&mapReady){map.setView([i.lat,i.lng],14);markers[id].openPopup();} }
+function selectInspectie(id) {
+  if (state.selectedId===id) { state.selectedId=null; renderLijst(); try{history.replaceState(null,'','/');}catch(e){} return; }
+  state.selectedId=id;
+  renderLijst();
+  const i=state.inspecties.find(x=>x.id===id);
+  if (i && i.dossiernummer) { try{history.replaceState(null,'','/'+encodeURIComponent(i.dossiernummer));}catch(e){} }
+  if (i && markers[id] && mapReady) { map.setView([i.lat,i.lng],14); markers[id].openPopup(); }
+}
 
 // ─── RENDER LIJST ────────────────────────────────────────────────────────────
 function setOverviewFilter(f) { overviewFilter=f; renderLijst(); }
@@ -986,8 +1031,7 @@ function renderLijst() {
         </div>
       </div>` : '';
 
-    const statusAccent = status==='afgerond' ? 'var(--green)' : status==='bezig' ? 'var(--orange)' : 'var(--gray2)';
-    return `<div class="card ${sel?'selected':''}" style="border-left-color:${statusAccent}" onclick="${clickHandler}">
+    return `<div class="card ${sel?'selected':''}" onclick="${clickHandler}">
       ${checkbox}
       <div class="card-top">
         <div class="card-address">${i.adres}</div>
@@ -1257,9 +1301,13 @@ function checkConditional(conditie) {
   const val = currentBevData[conditie.veld];
   if (conditie.is !== undefined) {
     if (typeof conditie.is === 'boolean') return !!val === conditie.is;
+    if (Array.isArray(val)) return val.includes(conditie.is);
     return val === conditie.is;
   }
-  if (conditie.niet !== undefined) return val !== conditie.niet;
+  if (conditie.niet !== undefined) {
+    if (Array.isArray(val)) return !val.includes(conditie.niet);
+    return val !== conditie.niet;
+  }
   if (conditie.begintMet !== undefined) return typeof val === 'string' && val.startsWith(conditie.begintMet);
   return true;
 }
@@ -1300,6 +1348,19 @@ function renderFlowField(veld) {
     const pills = veld.opties.map(o => {
       const act = selected.includes(o) ? ' actief' : '';
       return `<button type="button" class="pill-btn${act}" onclick="toggleFlowPill('${veld.id}','${o.replace(/'/g,"\\'")}',this)">${o}</button>`;
+    }).join('');
+    return `<div class="flow-row flow-pills-row${hideCls}" id="row-${veld.id}">
+      <span class="flow-label">${veld.label}</span>
+      <div class="pill-group">${pills}</div>
+    </div>`;
+  }
+  if (veld.type === 'pillSelect') {
+    const optieLijst = veld.opties === 'inspecteurs'
+      ? state.inspecteurs.map(i => i.naam)
+      : (veld.opties || []);
+    const pills = optieLijst.map(o => {
+      const act = val === o ? ' actief' : '';
+      return `<button type="button" class="pill-btn${act}" onclick="setPillSelectField('${veld.id}','${String(o).replace(/'/g,"\\'")}',this)">${esc(o)}</button>`;
     }).join('');
     return `<div class="flow-row flow-pills-row${hideCls}" id="row-${veld.id}">
       <span class="flow-label">${veld.label}</span>
@@ -1391,7 +1452,7 @@ function renderConductForm(inspectie) {
   const voortgang = berekenVoortgang();
 
   let html = '';
-  if (meerdereePanden) html += renderPandBar();
+  html += renderPandBar();
 
   html += `<div class="prop-header-card">
     <div class="prop-header-address">${esc(pand.adres || inspectie.adres)}</div>
@@ -1484,6 +1545,13 @@ function toggleFlowPill(fieldId, optie, btn) {
 function setScoreBtn(fieldId, val, btn) {
   setFlowField(fieldId, val);
   btn.closest('.flow-score-btns').querySelectorAll('.flow-score-btn').forEach(b => b.classList.toggle('actief', b.dataset.s === val));
+}
+
+function setPillSelectField(fieldId, val, btn) {
+  const nieuw = (currentBevData[fieldId] === val) ? '' : val;
+  setFlowField(fieldId, nieuw);
+  btn.closest('.pill-group').querySelectorAll('.pill-btn').forEach(b => b.classList.remove('actief'));
+  if (nieuw) btn.classList.add('actief');
 }
 
 function autoGrow(el) {
@@ -1870,60 +1938,85 @@ function exportInspectieExcel(id) {
 }
 
 // ─── TABEL ALLE INSPECTIES ───────────────────────────────────────────────────
-function sluitInspectiesTabel() {
-  document.getElementById('alle-insp-overlay').classList.add('hidden');
-}
+let alleBulkMode = false;
+let alleBulkSelected = new Set();
 
-function toonInspectiesTabel() {
-  const sorted = [...state.inspecties].sort((a,b)=>a.datum.localeCompare(b.datum));
+function toggleAlleBulkMode() {
+  alleBulkMode = !alleBulkMode;
+  alleBulkSelected.clear();
+  const btn = document.getElementById('alle-bulk-toggle-btn');
+  btn.textContent = alleBulkMode ? 'Klaar' : 'Selecteren';
+  btn.classList.toggle('bulk-actief', alleBulkMode);
+  btn.classList.toggle('btn-gray', !alleBulkMode);
+  renderAlleTabel();
+}
+function toggleAlleBulkSelect(id) {
+  if (alleBulkSelected.has(id)) alleBulkSelected.delete(id); else alleBulkSelected.add(id);
+  renderAlleTabel();
+}
+function updateAlleBulkActionBar() {
+  const bar = document.getElementById('alle-bulk-action-bar');
+  const n = alleBulkSelected.size;
+  bar.classList.toggle('show', alleBulkMode && n>0);
+  document.getElementById('alle-bulk-action-count').textContent = `${n} geselecteerd`;
+}
+function bulkDownloadExcelAlle() { bulkDownloadExcelFrom(alleBulkSelected); }
+function bulkAddToAgendaAlle() { bulkAddToAgendaFrom(alleBulkSelected); }
+
+function renderAlleTabel() {
+  const zoekterm = (document.getElementById('alle-zoek')?.value || '').toLowerCase().trim();
+  let sorted = [...state.inspecties].sort((a,b)=>a.datum.localeCompare(b.datum));
+  if (zoekterm) {
+    sorted = sorted.filter(i => {
+      const insp = state.inspecteurs.find(x=>x.id===i.inspecteurId);
+      return (i.adres||'').toLowerCase().includes(zoekterm) || (insp?.naam||'').toLowerCase().includes(zoekterm);
+    });
+  }
   function esc(t) { return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function sbadge(s) {
     const m={afgerond:['#EBF5EE','#237A45','✓ Afgerond'],bezig:['#FCF0E6','#EF6B00','⏳ Bezig'],gepland:['#F5F2F0','#79828C','Gepland']};
     const [bg,fg,lbl]=m[s]||m.gepland;
     return `<span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap;background:${bg};color:${fg};font-family:'Barlow',sans-serif">${lbl}</span>`;
   }
-  const xlsBtn = (id) => `<button onclick="exportInspectieExcel(${id})" class="act-btn" title="Download als Excel" style="padding:5px 9px;background:#EBF5EE;color:#237A45;font-size:11px;font-weight:700;letter-spacing:0.3px;border:0.5px solid #C7E5CF"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px;margin-right:3px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>XLS</button>`;
 
-  const tbody = sorted.map(i => {
+  if (!sorted.length) {
+    document.getElementById('alle-insp-inhoud').innerHTML = '<div class="empty">Geen inspecties gevonden.</div>';
+    updateAlleBulkActionBar();
+    return;
+  }
+
+  const kaarten = sorted.map(i => {
     const insp = state.inspecteurs.find(x=>x.id===i.inspecteurId);
     const isAfgerond = i.rapportStatus==='afgerond';
-    const isPast = i.datum < new Date().toISOString().slice(0,10);
-    return `<tr style="${isPast&&!isAfgerond?'opacity:0.55':''}">
-      <td>${formatDatumLang(i.datum)}</td>
-      <td style="font-weight:500;color:#25273A">${esc(i.adres)}</td>
-      <td>${esc(insp?insp.naam:'—')}</td>
-      <td>${sbadge(i.rapportStatus||'gepland')}</td>
-      <td style="text-align:right">
-        ${isAfgerond?`<button onclick="genereerRapport(${i.id})" class="act-btn act-primary">Rapport</button>`:''}
-        ${xlsBtn(i.id)}
-        <button onclick="sluitInspectiesTabel();selectInspectie(${i.id});showScreen('overview')" class="act-btn act-secondary">← Bewerken</button>
-      </td>
-    </tr>`;
+    const pandenCount = (i.panden && i.panden.length) ? i.panden.length + 1 : 1;
+    const checked = alleBulkSelected.has(i.id);
+    const clickHandler = alleBulkMode ? `toggleAlleBulkSelect(${i.id})` : `showScreen('overview');selectInspectie(${i.id})`;
+    const checkbox = alleBulkMode ? `<div class="bulk-checkbox${checked?' checked':''}">${checked?'✓':''}</div>` : '';
+    return `<div class="card${alleBulkMode?' bulk-row':''}" style="${alleBulkMode?'padding-left:42px;position:relative':''}" onclick="${clickHandler}">
+      ${checkbox}
+      <div class="card-top">
+        <div class="card-address">${esc(i.adres)}</div>
+        <div class="card-date">${formatDatum(i.datum)}</div>
+      </div>
+      <div class="card-meta">
+        <span style="font-size:14px;line-height:1">${insp?(insp.emoji||'👤'):'👤'}</span>
+        <span>${esc(insp?insp.naam:'—')}</span>
+        <span>·</span><span>${i.tijd}</span>
+        ${sbadge(i.rapportStatus||'gepland')}
+        ${pandenCount>1?`<span class="badge badge-gray">🏠 ${pandenCount} panden</span>`:''}
+      </div>
+      ${!alleBulkMode?`<div class="card-actions" onclick="event.stopPropagation()">
+        ${isAfgerond?`<button class="btn btn-sm btn-primary" onclick="genereerRapport(${i.id})">📄 Rapport</button>`:''}
+        <button class="btn btn-sm btn-gray" onclick="exportInspectieExcel(${i.id})">⬇️ XLS</button>
+        <button class="btn btn-sm btn-gray" onclick="showScreen('overview');selectInspectie(${i.id})">← Bewerken</button>
+      </div>`:''}
+    </div>`;
   }).join('');
 
   document.getElementById('alle-insp-inhoud').innerHTML = `
-    <style>
-      .ai-tbl{width:100%;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
-      .ai-tbl thead th{padding:8px 14px;font-size:10px;font-weight:600;color:#79828C;text-transform:uppercase;letter-spacing:0.5px;text-align:left;white-space:nowrap;border-bottom:1px solid #D7DED7;}
-      .ai-tbl tbody td{padding:11px 14px;font-size:13px;color:#79828C;border-bottom:0.5px solid #f0f0f0;vertical-align:middle;white-space:nowrap;}
-      .ai-tbl tbody tr:last-child td{border-bottom:none;}
-      .ai-tbl tbody tr:hover td{background:#fafafa;}
-      .act-btn{display:inline-flex;align-items:center;font-size:12px;font-weight:500;font-family:inherit;border-radius:7px;padding:5px 11px;cursor:pointer;border:none;white-space:nowrap;margin-left:4px;}
-      .act-primary{background:#097CE8;color:white;}
-      .act-secondary{background:#F5F2F0;color:#25273A;border:0.5px solid #D7DED7;}
-    </style>
-    <div style="display:flex;align-items:flex-end;padding-bottom:14px;border-bottom:1px solid #D7DED7;margin-bottom:20px">
-      <div>
-        <div style="font-size:22px;font-weight:700;letter-spacing:-0.4px;color:#25273A">Alle inspecties</div>
-        <div style="font-size:13px;color:#79828C;margin-top:3px">${sorted.length} inspecties · Savills Team Valuation</div>
-      </div>
-    </div>
-    <table class="ai-tbl">
-      <thead><tr><th>Datum</th><th>Adres</th><th>Taxateur</th><th>Status</th><th style="text-align:right">Acties</th></tr></thead>
-      <tbody>${tbody}</tbody>
-    </table>`;
-
-  document.getElementById('alle-insp-overlay').classList.remove('hidden');
+    <div style="font-size:13px;color:var(--gray);margin-bottom:10px">${sorted.length} inspectie${sorted.length===1?'':'s'}</div>
+    ${kaarten}`;
+  updateAlleBulkActionBar();
 }
 
 
@@ -1931,9 +2024,10 @@ function toonInspectiesTabel() {
 function showScreen(name) {
   document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
   document.getElementById('screen-'+name).classList.remove('hidden');
-  const tabNames=['home','overview','team'];
+  const tabNames=['home','overview','alle','team'];
   document.querySelectorAll('.tab-item').forEach((t,i)=>t.classList.toggle('active',tabNames[i]===name));
   if (name==='overview') { initMap(); setTimeout(()=>{if(mapReady)map.invalidateSize();},80); renderLijst(); renderMarkers(); }
+  if (name==='alle') renderAlleTabel();
   if (name==='team') renderTeam();
 }
 
@@ -1976,6 +2070,8 @@ async function logout() {
   document.getElementById('login-btn').disabled = false;
   document.getElementById('login-btn').textContent = 'Inloggen';
   document.getElementById('screen-login').style.display = 'flex';
+  try{history.replaceState(null,'','/');}catch(e){}
+  routedFromUrl = false;
 }
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
