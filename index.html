@@ -1229,6 +1229,45 @@ function setHoofdNotitie(value) {
   scheduleAutoSave();
 }
 
+// Verkleint/comprimeert een foto in de browser vóór upload, zodat een foto van
+// een telefooncamera (vaak 3-8 MB) niet ongewijzigd naar Supabase Storage gaat.
+async function comprimeerFoto(file, maxAfmeting = 1920, kwaliteit = 0.82) {
+  if (!file.type || !file.type.startsWith('image/')) return file; // geen afbeelding, niet aankomen
+  if (file.type === 'image/svg+xml') return file; // vector, niets te comprimeren
+  try {
+    let bron, breedte, hoogte;
+    if ('createImageBitmap' in window) {
+      // imageOrientation:'from-image' zorgt dat een foto die "op zijn kant" is
+      // opgeslagen (heel gangbaar bij telefooncamera's) rechtop blijft staan.
+      bron = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      breedte = bron.width; hoogte = bron.height;
+    } else {
+      bron = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = URL.createObjectURL(file);
+      });
+      breedte = bron.naturalWidth; hoogte = bron.naturalHeight;
+    }
+    const schaal = Math.min(1, maxAfmeting / Math.max(breedte, hoogte));
+    if (schaal >= 1 && file.size < 1.2 * 1024 * 1024) {
+      if (bron.close) bron.close();
+      return file; // al klein genoeg, niet opnieuw encoderen
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(breedte * schaal));
+    canvas.height = Math.max(1, Math.round(hoogte * schaal));
+    canvas.getContext('2d').drawImage(bron, 0, 0, canvas.width, canvas.height);
+    if (bron.close) bron.close();
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', kwaliteit));
+    return blob || file;
+  } catch (e) {
+    console.warn('Foto comprimeren mislukt, originele foto wordt gebruikt:', e);
+    return file; // val terug op het origineel, liever een grote foto dan geen foto
+  }
+}
+
 async function handleFotoUpload(ev, pandIdx) {
   const files = Array.from(ev.target.files||[]);
   if (!files.length) return;
@@ -1238,9 +1277,11 @@ async function handleFotoUpload(ev, pandIdx) {
     let placeholder=null;
     if (grid) { placeholder=document.createElement('div'); placeholder.className='foto-thumb uploading'; placeholder.textContent='⏳'; grid.insertBefore(placeholder, grid.lastElementChild); }
     try {
-      const ext = (file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
+      const gecomprimeerd = await comprimeerFoto(file);
+      const werdGecomprimeerd = gecomprimeerd !== file;
+      const ext = werdGecomprimeerd ? 'jpg' : ((file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg');
       const path = `${currentBevindingId}/${pand.id}/${Date.now()}_${Math.random().toString(36).slice(2,7)}.${ext}`;
-      const { error } = await db.storage.from('inspectie-fotos').upload(path, file, { upsert:false, contentType:file.type||'image/jpeg' });
+      const { error } = await db.storage.from('inspectie-fotos').upload(path, gecomprimeerd, { upsert:false, contentType: werdGecomprimeerd ? 'image/jpeg' : (file.type||'image/jpeg') });
       if (error) throw error;
       const { data } = db.storage.from('inspectie-fotos').getPublicUrl(path);
       pand.fotos = pand.fotos || [];
@@ -1499,7 +1540,7 @@ function renderConductForm(inspectie) {
   }
 
   html += `<div class="add-btn-wrap" style="display:flex;gap:8px;margin-top:24px">
-    <button class="btn btn-gray" style="flex:1" onclick="saveBevindingen('bezig').then(()=>showSaveOk())">💾 Opslaan</button>
+    <button class="btn btn-gray" style="flex:1" onclick="saveBevindingen('bezig').then(ok=>{if(ok)showSaveOk()})">💾 Opslaan</button>
     <button class="btn btn-primary" style="flex:1" onclick="afrondenEnRapport()">📄 Rapport genereren</button>
   </div>`;
 
@@ -1567,15 +1608,15 @@ function showSaveOk() {
 function scheduleAutoSave() {
   clearTimeout(autoSaveTimer);
   const s=document.getElementById('conduct-save-status');
-  if(s) s.textContent='● Opslaan…';
+  if(s){ s.style.color=''; s.textContent='● Opslaan…'; }
   autoSaveTimer=setTimeout(async()=>{
-    await saveBevindingen('bezig');
-    if(s){s.textContent='✓ Opgeslagen';setTimeout(()=>{s.textContent='';},2000);}
+    const ok = await saveBevindingen('bezig');
+    if(s && ok){s.textContent='✓ Opgeslagen';setTimeout(()=>{s.textContent='';},2000);}
   },1500);
 }
 
 async function saveBevindingen(rapportStatus='bezig') {
-  if (!currentBevindingId) return;
+  if (!currentBevindingId) return false;
   // Collect any DOM inputs not yet reflected in currentBevData
   FLOW_RESIDENTIAL.forEach(sec => {
     sec.velden.forEach(veld => {
@@ -1600,11 +1641,20 @@ async function saveBevindingen(rapportStatus='bezig') {
   };
   if (inspectie && inspectie.notities !== undefined) payload.notities = inspectie.notities || '';
   const { error }=await db.from('inspecties').update(payload).eq('id',currentBevindingId);
-  if(error) console.error('Save fout:',error);
+  const s = document.getElementById('conduct-save-status');
+  if (error) {
+    console.error('Save fout:', error);
+    if (s) { s.textContent = '✗ Opslaan mislukt'; s.style.color = 'var(--red)'; }
+    alert('Opslaan is mislukt.\n\nFoutmelding van Supabase:\n' + error.message + '\n\nDit betekent meestal dat een kolom nog ontbreekt in de tabel "inspecties" (zoals "panden" of "fotos"). Zie de SQL-instructie bovenin dit bestand.');
+    return false;
+  }
+  if (s) s.style.color = '';
+  return true;
 }
 
 async function afrondenEnRapport() {
-  await saveBevindingen('afgerond');
+  const ok = await saveBevindingen('afgerond');
+  if (!ok) return;
   await laadData();
   const updated = state.inspecties.find(x=>x.id===currentBevindingId);
   if (updated) genereerRapport(updated);
