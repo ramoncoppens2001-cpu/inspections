@@ -1,0 +1,1986 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Savills | Inspectie Planner</title>
+<link id="favicon" rel="icon" type="image/svg+xml">
+<!--
+  SUPABASE SQL (run once in SQL Editor):
+  alter table inspecties add column if not exists bevindingen jsonb default '{}';
+  alter table inspecties add column if not exists rapport_status text default 'gepland';
+  alter table inspecties add column if not exists vastgoed_type text default 'Residentieel';
+  alter table inspecties add column if not exists dossiernummer text default null;
+  alter table inspecties add column if not exists flow_id text default null;
+  alter table inspecties add column if not exists panden jsonb default '[]';
+  alter table inspecties add column if not exists fotos jsonb default '[]';
+
+  STORAGE (eenmalig instellen in Supabase):
+  Maak een PUBLIC bucket genaamd "inspectie-fotos" aan via Storage → New bucket.
+  Daar worden foto's van extra panden in opgeslagen (pad: <inspectie_id>/<pand_id>/<bestand>).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root {
+  /* Savills brand palette (Global Brand Guidelines v1 Jan 2024 + PowerBI Guidelines 2024) */
+  --blue:#097CE8;--blue-light:rgba(9,124,232,0.10);         /* Savills digital blue — primary action */
+  --green:#3AA95C;--green-light:rgba(58,169,92,0.12);       /* Savills green — success / afgerond */
+  --red:#CE181E;--red-light:rgba(206,24,30,0.10);           /* Savills red — danger / delete */
+  --orange:#EF6B00;--orange-light:rgba(239,107,0,0.12);     /* Savills orange — warning / bezig */
+  --yellow:#FEDF00;--yellow-light:rgba(254,223,0,0.16);     /* Savills yellow — brand accent/highlight */
+  --navy:#25273A;--navy-light:rgba(37,39,58,0.08);          /* Savills navy — headers/dark accent */
+  --purple:#83007E;--purple-light:rgba(131,0,126,0.10);     /* Savills purple — settings/reset accent */
+  --pink:#D3397F;--pink-light:rgba(211,57,127,0.10);        /* Savills pink — menu accent */
+  --teal:#238291;--teal-light:rgba(35,130,145,0.10);        /* Savills teal — secondary accent */
+  --gray:#79828C;--gray2:#BEBFC4;                           /* Steel grey (supporting palette) */
+  --bg:#F5F2F0;--surface:#FFFFFF;                           /* Cream 50% tint background */
+  --sep:rgba(37,39,58,0.12);
+  --text:#25273A;--text2:rgba(37,39,58,0.75);--text3:rgba(37,39,58,0.45);
+  --font-data:'Barlow',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{
+  height:100%;height:100dvh;
+  font-family:'Gotham','Gotham SSm A','Gotham SSm B',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;
+  background:var(--bg);color:var(--text);
+  -webkit-font-smoothing:antialiased;overscroll-behavior:none;
+}
+
+/* SCREENS */
+.screen{position:fixed;inset:0;bottom:calc(49px + env(safe-area-inset-bottom));display:flex;flex-direction:column;background:var(--bg);overflow:hidden;}
+.screen.hidden{display:none;}
+.hidden{display:none!important;}
+
+/* NAV BAR */
+.nav-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;padding-top:calc(10px + env(safe-area-inset-top));background:rgba(242,242,247,0.88);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid var(--sep);flex-shrink:0;z-index:10;}
+.nav-bar-title{font-size:17px;font-weight:600;letter-spacing:-0.3px;}
+.page-title{font-size:34px;font-weight:700;letter-spacing:-0.6px;padding:10px 20px 2px;}
+
+/* TAB BAR */
+.tab-bar{position:fixed;bottom:0;left:0;right:0;height:calc(49px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:rgba(249,249,249,0.94);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid var(--sep);display:flex;z-index:100;}
+.tab-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:none;border:none;cursor:pointer;font-size:10px;font-weight:500;color:var(--gray);font-family:inherit;-webkit-font-smoothing:antialiased;transition:color 0.12s;letter-spacing:-0.1px;padding:0;}
+.tab-item.active{color:var(--blue);}
+.tab-item svg{width:25px;height:25px;}
+
+/* SCROLL */
+.screen-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:24px;}
+.screen-scroll::-webkit-scrollbar{display:none;}
+
+/* IOS FORM */
+.form-section{margin:22px 16px 0;}
+.form-section-label{font-size:13px;font-weight:500;color:var(--gray);text-transform:uppercase;letter-spacing:0.05em;padding:0 4px;margin-bottom:6px;}
+.form-card{background:var(--surface);border-radius:12px;}
+.form-row-ios{display:flex;align-items:center;padding:11px 16px;min-height:44px;gap:10px;border-bottom:0.5px solid var(--sep);position:relative;}
+.form-row-ios:last-child{border-bottom:none;}
+.form-row-ios>label{font-size:16px;color:var(--text);min-width:90px;flex-shrink:0;font-weight:400;letter-spacing:-0.1px;}
+.form-row-ios input,.form-row-ios select{flex:1;border:none;background:transparent;font-size:16px;text-align:right;color:var(--blue);padding:0;outline:none;font-family:inherit;min-width:0;-webkit-font-smoothing:antialiased;appearance:none;-webkit-appearance:none;}
+.form-row-ios textarea{flex:1;border:none;background:transparent;font-size:16px;color:var(--text2);padding:0;outline:none;font-family:inherit;resize:none;min-height:72px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+
+
+/* DROPDOWN */
+/* SEARCH BAR */
+.srch-wrap{margin:4px 0 0;position:relative;z-index:50;}
+.srch-inner{display:flex;align-items:center;gap:9px;background:rgba(120,120,128,0.11);border-radius:13px;padding:10px 14px;transition:background .15s,box-shadow .15s;}
+.srch-inner:focus-within{background:white;box-shadow:0 0 0 0.5px var(--sep),0 2px 16px rgba(0,0,0,.09);}
+.srch-icon{color:var(--gray2);flex-shrink:0;}
+.srch-input{flex:1;border:none;background:transparent;font-size:16px;outline:none;font-family:inherit;color:var(--text);-webkit-font-smoothing:antialiased;letter-spacing:-0.1px;}
+.srch-input::placeholder{color:var(--gray);font-weight:400;}
+.geo-status{font-size:12px;color:var(--gray);padding:6px 2px 0;}
+#adres-dropdown{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:9999;background:white;border-radius:13px;box-shadow:0 4px 24px rgba(0,0,0,.13),0 0 0 0.5px rgba(0,0,0,.06);list-style:none;overflow:hidden;max-height:220px;overflow-y:auto;display:none;}
+#adres-dropdown li{padding:12px 16px;font-size:15px;cursor:pointer;border-bottom:0.5px solid var(--sep);letter-spacing:-0.1px;}
+#adres-dropdown li:last-child{border-bottom:none;}
+#adres-dropdown li:hover,#adres-dropdown li.active{background:var(--blue-light);color:var(--blue);}
+
+/* SUGGESTION */
+.suggestion{margin:14px 16px 0;background:var(--blue-light);border-radius:12px;padding:13px 14px;border:1px solid rgba(9,124,232,0.18);display:none;}
+.suggestion-text{font-size:14px;color:var(--text);line-height:1.45;}
+.suggestion-text strong{color:var(--blue);}
+.suggestion-actions{margin-top:10px;display:flex;gap:8px;}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 20px;border-radius:12px;font-size:16px;font-weight:600;cursor:pointer;border:none;transition:opacity .12s,transform .08s;font-family:inherit;-webkit-font-smoothing:antialiased;letter-spacing:-0.2px;}
+.btn:active{transform:scale(0.97);opacity:0.85;}
+.btn-primary{background:var(--yellow);color:var(--navy);font-weight:700;}
+.btn-primary:active{background:#E8CC00;}
+.btn-full{width:100%;}
+.btn-sm{padding:6px 12px;font-size:13px;border-radius:9px;font-weight:500;}
+.btn-red{background:var(--red);color:white;}
+.btn-gray{background:rgba(120,120,128,0.14);color:var(--text2);}
+.btn-green{background:var(--green);color:white;}
+.btn-tinted{background:var(--blue-light);color:var(--blue);}
+.add-btn-wrap{margin:16px 16px 8px;}
+
+/* OVERVIEW */
+.overview-body{flex:1;display:flex;overflow:hidden;}
+@media(min-width:700px){.overview-body{flex-direction:row;}.overview-panel{width:360px;flex-shrink:0;display:flex;flex-direction:column;border-right:0.5px solid var(--sep);overflow:hidden;}#map{flex:1;}}
+@media(max-width:699px){.overview-body{flex-direction:column;}#map{height:40vh;flex-shrink:0;}.overview-panel{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;}}
+.ov-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface);border-bottom:0.5px solid var(--sep);flex-shrink:0;gap:8px;}
+.ov-header h2{font-size:15px;font-weight:600;letter-spacing:-0.2px;}
+.ov-header select{font-size:13px;border:none;background:var(--blue-light);color:var(--blue);border-radius:8px;padding:4px 8px;font-family:inherit;font-weight:500;outline:none;max-width:150px;}
+.ov-filter-btn{font-size:12px;font-family:inherit;font-weight:500;border:none;border-radius:7px;padding:5px 0;cursor:pointer;background:var(--bg);color:var(--text2);transition:background 0.15s,color 0.15s;flex:1;text-align:center;height:28px;}
+.ov-filter-btn.active{background:var(--blue);color:white;}
+.ov-list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;}
+.ov-list::-webkit-scrollbar{display:none;}
+
+/* CARDS */
+.card{background:var(--surface);border-radius:14px;margin-bottom:8px;padding:13px 14px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.06),0 0 0 0.5px rgba(0,0,0,.05);transition:box-shadow .15s,transform .1s;border-left:3px solid transparent;}
+.card:active{transform:scale(0.99);}
+.card.selected{box-shadow:0 0 0 2px var(--blue),0 4px 16px rgba(9,124,232,0.15);}
+.card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+.card-address{font-weight:600;font-size:15px;letter-spacing:-0.3px;line-height:1.3;}
+.card-date{font-size:12px;color:var(--gray);white-space:nowrap;margin-top:1px;font-family:var(--font-data);}
+.card-meta{margin-top:6px;display:flex;align-items:center;gap:5px;font-size:13px;color:var(--text2);flex-wrap:wrap;}
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:var(--blue-light);color:var(--blue);font-family:var(--font-data);}
+.badge-gray{background:rgba(121,130,140,0.15);color:var(--gray);}
+.badge-orange{background:rgba(239,107,0,0.15);color:var(--orange);}
+.badge-green{background:rgba(58,169,92,0.15);color:var(--green);}
+.card-actions{margin-top:10px;display:none;gap:6px;flex-wrap:wrap;}
+.card.selected .card-actions{display:flex;}
+.edit-form{border-top:0.5px solid var(--sep);margin-top:12px;padding-top:12px;}
+.edit-form .form-row{margin-bottom:8px;}
+.edit-form label{font-size:12px;font-weight:500;color:var(--gray);display:block;margin-bottom:4px;}
+.edit-form input,.edit-form select,.edit-form textarea{width:100%;border:none;border-radius:10px;padding:9px 12px;font-size:14px;font-family:inherit;outline:none;background:var(--bg);color:var(--text);box-shadow:0 0 0 1px rgba(0,0,0,.08);}
+.edit-form .form-row-2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+.edit-form textarea{resize:vertical;min-height:54px;}
+.empty{text-align:center;color:var(--gray2);font-size:15px;padding:40px 0;}
+
+/* TEAM */
+.team-section{margin:16px 16px 0;}
+.team-section-label{font-size:13px;font-weight:500;color:var(--gray);text-transform:uppercase;letter-spacing:0.05em;padding:0 4px;margin-bottom:6px;}
+.team-card{background:var(--surface);border-radius:12px;overflow:visible;}
+.inspector-row{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:0.5px solid var(--sep);font-size:15px;}
+.inspector-row:last-child{border-bottom:none;}
+.inspector-name{flex:1;font-weight:500;letter-spacing:-0.1px;}
+.inspector-count{font-size:12px;color:var(--gray);font-family:var(--font-data);}
+
+/* EMOJI PICKER */
+.emoji-picker{display:none;background:var(--surface);border-radius:10px;padding:10px;margin-top:6px;box-shadow:0 2px 12px rgba(0,0,0,.1);border:0.5px solid var(--sep);}
+.emoji-picker.open{display:block;}
+.emoji-cat-label{font-size:10px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin:8px 0 4px;}
+.emoji-cat-label:first-child{margin-top:0;}
+.emoji-rij{display:flex;flex-wrap:wrap;gap:2px;}
+.emoji-btn-item{font-size:20px;background:none;border:none;cursor:pointer;padding:4px;border-radius:6px;transition:background .1s;line-height:1;}
+.emoji-btn-item:hover,.emoji-btn-item.actief{background:var(--blue-light);}
+.kleur-swatch{width:22px;height:22px;border-radius:50%;border:2px solid white;cursor:pointer;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.25);flex-shrink:0;transition:transform .1s;}
+.kleur-swatch:hover{transform:scale(1.15);}
+.kleur-swatch.actief{border:3px solid var(--text);}
+
+/* MAP LEGEND */
+.legend{background:rgba(255,255,255,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);padding:10px 12px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.1);font-size:12px;line-height:2;}
+
+/* ── CONDUCT SCREEN ── */
+.conduct-tekst-lg{width:100%;border:none;background:transparent;font-size:15px;font-family:inherit;outline:none;resize:none;min-height:80px;line-height:1.5;color:var(--text2);}
+.prop-header-card{background:white;border-radius:14px;padding:14px 16px;margin:16px 16px 0;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.prop-header-address{font-size:18px;font-weight:700;letter-spacing:-0.4px;}
+.prop-header-meta{font-size:13px;color:var(--text2);margin-top:4px;}
+
+/* ── ACCORDION ── */
+.acc-section{margin:12px 16px 0;}
+.acc-header{background:var(--surface);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;border:none;width:100%;text-align:left;font-family:inherit;transition:background .1s;}
+.acc-header.open{border-radius:12px 12px 0 0;}
+.acc-header:active{background:#f0f0f5;}
+.acc-icon{font-size:17px;flex-shrink:0;}
+.acc-title{font-size:15px;font-weight:600;color:var(--text);flex:1;letter-spacing:-0.2px;}
+.acc-badge{font-size:11px;font-weight:600;color:var(--gray);background:rgba(121,130,140,0.14);padding:2px 7px;border-radius:99px;font-family:var(--font-data);}
+.acc-chevron{color:var(--gray);transition:transform .22s;font-size:13px;flex-shrink:0;}
+.acc-header.open .acc-chevron{transform:rotate(180deg);}
+.acc-body{background:var(--surface);border-radius:0 0 12px 12px;overflow:hidden;display:none;border-top:0.5px solid var(--sep);}
+.acc-body.open{display:block;}
+
+/* ── FLOW FIELD ROWS ── */
+.flow-row{display:flex;align-items:center;padding:11px 16px;min-height:44px;gap:10px;border-bottom:0.5px solid var(--sep);}
+.flow-row:last-child{border-bottom:none;}
+.flow-label{font-size:15px;color:var(--text);flex:1;line-height:1.35;letter-spacing:-0.1px;}
+.flow-label-sm{font-size:13px;color:var(--text2);}
+.flow-val{flex-shrink:0;width:54%;max-width:260px;}
+.flow-row select{border:none;background:transparent;font-size:14px;color:var(--text);padding:0;outline:none;font-family:inherit;appearance:none;-webkit-appearance:none;width:100%;cursor:pointer;}
+.select-wrap{display:flex;align-items:center;gap:4px;background:var(--bg);border-radius:9px;padding:5px 10px;border:1px solid rgba(0,0,0,.08);width:100%;}
+.select-chev{color:var(--gray);font-size:10px;pointer-events:none;flex-shrink:0;}
+.flow-row input[type=text],.flow-row input[type=number],.flow-row input[type=date]{border:none;background:transparent;font-size:15px;text-align:right;color:var(--blue);padding:0;outline:none;font-family:inherit;width:100%;}
+.flow-textarea-row{flex-direction:column;align-items:stretch;gap:4px;padding:12px 16px;}
+.flow-textarea{width:100%;border:none;background:transparent;font-size:14px;font-family:inherit;outline:none;resize:none;min-height:32px;height:32px;line-height:1.5;color:var(--text2);padding:0;overflow:hidden;transition:color .15s;}
+.flow-textarea:focus{color:var(--text);}
+.flow-input-wrap{background:var(--bg);border-radius:9px;padding:5px 10px;border:1px solid rgba(0,0,0,.09);display:flex;align-items:center;}
+.flow-input-wrap input{background:transparent;border:none;text-align:right;color:var(--text);font-size:15px;font-family:inherit;outline:none;width:100%;min-width:60px;}
+.flow-score-row{flex-direction:column;align-items:stretch;gap:8px;padding:12px 16px;}
+.flow-score-btns{display:flex;gap:4px;}
+.flow-score-btn{flex:1;min-width:0;padding:7px 2px;border:1.5px solid var(--gray2);border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;background:white;color:var(--gray);font-family:inherit;text-align:center;transition:all .1s;}
+.flow-score-btn[data-s="Slecht"].actief{background:#CE181E;border-color:#CE181E;color:white;}
+.flow-score-btn[data-s="Matig"].actief{background:#EF6B00;border-color:#EF6B00;color:white;}
+.flow-score-btn[data-s="Voldoende"].actief{background:#FEDF00;border-color:#FEDF00;color:#25273A;}
+.flow-score-btn[data-s="Goed"].actief{background:#3AA95C;border-color:#3AA95C;color:white;}
+.flow-score-btn[data-s="Uitstekend"].actief{background:#097CE8;border-color:#097CE8;color:white;}
+.flow-pills-row{flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px;}
+.pill-group{display:flex;flex-wrap:wrap;gap:6px;}
+.pill-btn{padding:5px 13px;border:1.5px solid var(--gray2);border-radius:99px;font-size:13px;font-weight:500;cursor:pointer;background:white;color:var(--text2);transition:all .1s;font-family:inherit;line-height:1.4;}
+.pill-btn.actief{background:var(--blue);border-color:var(--blue);color:white;}
+.flow-hidden{display:none;}
+
+/* ── FORM TYPE SWITCH ── */
+.fts-wrap{display:flex;background:rgba(120,120,128,0.12);border-radius:9px;padding:2px;margin:12px 16px 0;gap:2px;}
+.fts-btn{flex:1;padding:6px 4px;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:transparent;color:var(--gray);transition:all .15s;letter-spacing:-0.1px;}
+.fts-btn.actief{background:white;color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.14);}
+
+/* ── NAV LOGO ── */
+.nav-logo{width:28px;height:28px;flex-shrink:0;border-radius:0;}
+
+/* ── LOGIN SCREEN ── */
+#screen-login{position:fixed;inset:0;z-index:500;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;}
+.login-logo{width:72px;height:72px;border-radius:0;margin-bottom:16px;}
+.login-title{font-size:22px;font-weight:700;letter-spacing:-0.4px;color:var(--text);margin-bottom:4px;}
+.login-sub{font-size:14px;color:var(--gray);margin-bottom:32px;}
+.login-card{width:100%;max-width:340px;background:var(--surface);border-radius:14px;box-shadow:0 2px 16px rgba(0,0,0,.08);border-top:3px solid var(--yellow);}
+.login-field{display:flex;flex-direction:column;padding:13px 16px;border-bottom:0.5px solid var(--sep);}
+.login-field:last-of-type{border-bottom:none;}
+.login-field label{font-size:12px;color:var(--gray);margin-bottom:4px;font-weight:500;}
+.login-field input{font-size:16px;border:none;background:transparent;outline:none;font-family:inherit;color:var(--text);-webkit-font-smoothing:antialiased;}
+.login-error{font-size:13px;color:var(--red);margin-top:10px;min-height:18px;text-align:center;}
+.login-btn{margin-top:20px;width:100%;max-width:340px;}
+
+/* ── iOS TOGGLE ── */
+.ios-toggle{position:relative;width:40px;height:24px;flex-shrink:0;display:inline-block;cursor:pointer;}
+.ios-toggle input{opacity:0;width:0;height:0;position:absolute;}
+.ios-toggle-track{position:absolute;inset:0;background:var(--gray2);border-radius:99px;transition:background .2s;}
+.ios-toggle input:checked+.ios-toggle-track{background:var(--green);}
+.ios-toggle-thumb{position:absolute;top:2px;left:2px;width:20px;height:20px;background:white;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .2s;pointer-events:none;}
+.ios-toggle input:checked~.ios-toggle-thumb{transform:translateX(16px);}
+
+/* ── MAP/LIST TOGGLE (overzicht) ── */
+.ov-view-toggle{display:flex;background:rgba(120,120,128,0.12);border-radius:8px;padding:2px;gap:2px;flex-shrink:0;}
+.ov-view-btn{border:none;background:transparent;border-radius:6px;padding:5px 8px;cursor:pointer;color:var(--gray);display:flex;align-items:center;font-family:inherit;transition:all .15s;}
+.ov-view-btn.actief{background:white;color:var(--blue);box-shadow:0 1px 3px rgba(0,0,0,.14);}
+.ov-view-btn svg{width:16px;height:16px;}
+.overview-body.map-only .overview-panel{display:none;}
+.overview-body.map-only #map{height:100%!important;flex:1;}
+
+/* ── BULK SELECTIE ── */
+.bulk-toggle-btn{font-size:12px;font-weight:600;}
+.bulk-toggle-btn.bulk-actief{background:var(--green)!important;color:white!important;}
+.ov-list.bulk-mode .card{cursor:pointer;padding-left:42px;position:relative;}
+.bulk-checkbox{position:absolute;left:12px;top:14px;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--gray2);background:white;display:flex;align-items:center;justify-content:center;font-size:12px;color:white;flex-shrink:0;transition:all .1s;}
+.bulk-checkbox.checked{background:var(--blue);border-color:var(--blue);}
+.bulk-action-bar{position:absolute;left:0;right:0;bottom:0;background:rgba(249,249,249,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid var(--sep);padding:10px 14px;display:none;align-items:center;gap:8px;z-index:20;}
+.bulk-action-bar.show{display:flex;}
+.bulk-action-count{font-size:13px;font-weight:600;color:var(--text2);flex-shrink:0;font-family:var(--font-data);}
+.overview-panel{position:relative;}
+
+/* ── INSTELLINGEN OVERLAY ── */
+.settings-overlay{position:fixed;inset:0;z-index:400;background:var(--bg);display:flex;flex-direction:column;}
+.gear-btn{background:none;border:none;cursor:pointer;padding:4px;display:flex;align-items:center;color:var(--text2);transition:color .15s;}
+.gear-btn:active,.gear-btn:hover{color:var(--purple);}
+.gear-btn svg{width:20px;height:20px;}
+
+/* ── PAND SWITCHER (conduct) ── */
+.pand-bar{display:flex;align-items:center;gap:6px;padding:10px 16px 2px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.pand-bar::-webkit-scrollbar{display:none;}
+.pand-chip{flex-shrink:0;display:flex;align-items:center;gap:5px;padding:7px 13px;border-radius:99px;font-size:13px;font-weight:600;background:white;color:var(--text2);border:1px solid var(--sep);cursor:pointer;white-space:nowrap;transition:all .12s;font-family:inherit;}
+.pand-chip.actief{background:var(--pink);color:white;border-color:var(--pink);}
+.pand-chip-del{margin-left:2px;opacity:.6;font-weight:700;}
+.pand-chip-add{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:var(--blue-light);color:var(--blue);border:none;cursor:pointer;font-size:18px;font-weight:600;}
+.pand-active-banner{margin:10px 16px 0;background:var(--blue-light);border:1px solid rgba(9,124,232,0.18);border-radius:10px;padding:9px 13px;font-size:13px;color:var(--blue);font-weight:600;display:flex;align-items:center;gap:6px;}
+
+/* ── NIEUW PAND OVERLAY ── */
+.pand-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);z-index:600;display:flex;align-items:flex-end;justify-content:center;}
+@media(min-width:600px){.pand-modal-overlay{align-items:center;}}
+.pand-modal{background:var(--surface);border-radius:16px 16px 0 0;width:100%;max-width:440px;padding:18px 18px calc(18px + env(safe-area-inset-bottom));}
+@media(min-width:600px){.pand-modal{border-radius:16px;}}
+.pand-modal h3{font-size:17px;font-weight:700;margin-bottom:14px;letter-spacing:-0.3px;}
+
+/* ── FOTO'S ── */
+.foto-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:12px 16px;}
+.foto-thumb{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;background:var(--bg);}
+.foto-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.foto-thumb .foto-del{position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,.55);color:white;border:none;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;line-height:1;}
+.foto-thumb.uploading{display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--gray);}
+.foto-add-btn{aspect-ratio:1;border-radius:10px;border:1.5px dashed var(--gray2);background:transparent;color:var(--gray);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;font-weight:500;cursor:pointer;font-family:inherit;}
+.foto-add-btn svg{width:20px;height:20px;}
+
+/* ── SNELLE OPMERKINGEN (pand) ── */
+.pand-quicknote{margin:12px 16px 0;background:var(--surface);border-radius:12px;padding:12px 14px;}
+.pand-quicknote label{font-size:12px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px;}
+.pand-quicknote textarea{width:100%;border:none;background:transparent;font-size:15px;font-family:inherit;outline:none;resize:vertical;min-height:50px;color:var(--text);line-height:1.45;}
+.pand-adres-row input{font-size:16px;}
+
+/* ── PROGRESS BAR (conduct) ── */
+.progress-wrap{margin:0 16px;height:4px;background:rgba(120,120,128,0.16);border-radius:99px;overflow:hidden;flex-shrink:0;}
+.progress-bar{height:100%;background:var(--blue);border-radius:99px;transition:width .25s;}
+</style>
+</head>
+<body>
+
+<!-- SVG SYMBOLS -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="savills-sym" viewBox="0 0 500 500.003">
+    <rect fill="#FFE850" width="500" height="500.003"/>
+    <path fill="#CE171E" d="M72.884,468.165c-25.574,0-42.914-13.098-42.914-37.422v-0.936h14.038v0.621c0,15.904,11.536,25.268,28.998,25.268c9.356,0,27.132-4.057,27.132-19.031c0-28.997-66.737-8.416-66.737-49.893c0-20.896,19.463-30.252,38.797-30.252c22.765,0,38.232,13.094,38.232,34.305v0.936H96.399v-0.936c0-13.723-9.67-21.833-25.267-21.833c-10.915,0-23.701,4.678-23.701,17.158c0,27.132,66.737,8.102,66.737,49.894C114.168,458.183,93.461,468.165,72.884,468.165 M210.424,465.048c-1.244-3.119-2.13-13.723-2.13-18.708v-57.388c0-22.765-13.974-32.432-38.304-32.432c-22.45,0-42.099,9.981-42.099,34.619v0.936h14.038v-0.936c0-15.911,11.851-22.14,26.511-22.14c17.461,0,25.566,6.229,25.566,20.267c0,10.91-5.296,12.161-15.281,13.408l-5.296,0.629c-24.638,2.803-49.904,5.611-49.904,33.673c0,19.337,13.102,31.188,34.937,31.188c19.02,0,31.178-8.416,36.481-19.96c0,0,0,11.229,1.558,16.843H210.424z M194.006,424.193c0,8.108-2.802,15.596-8.105,21.21c-6.547,6.544-15.91,10.289-26.51,10.289c-10.286,0-21.829-5.614-21.829-19.023c0-16.218,17.462-19.956,36.174-22.146l9.979-1.244c2.815-0.307,8.112-1.25,10.292-3.116V424.193z M300.97,359.636h-1.244h-13.767l-28.647,89.323l-28.954-89.323h-16.261l37.424,105.409h15.282L300.97,359.636z M324.835,331.893c0-5.572-4.582-9.828-9.82-9.828c-5.24,0-9.821,4.256-9.821,9.5c0,5.568,4.581,9.82,9.821,9.82c5.238,0,9.82-4.252,9.82-9.82V331.893z M322.497,465.045V359.636h-0.936h-13.724v105.409H322.497z M351.495,465.045V319.717h-0.93h-13.723v145.328H351.495z M380.2,465.045V319.717h-0.937H365.54v145.328H380.2z M431.52,468.165c20.592,0,41.291-9.982,41.291-32.121c0-41.792-67.044-22.762-67.044-49.894c0-12.48,12.779-17.158,24.002-17.158c15.596,0,25.266,8.109,25.266,21.833v0.936h14.031v-0.936c0-21.21-15.468-34.305-38.54-34.305c-19.341,0-38.797,9.356-38.797,30.252c0,41.477,67.044,20.896,67.044,49.893c0,14.975-18.083,19.031-27.432,19.031c-17.162,0-29.012-9.363-29.012-25.268v-0.621h-14.038v0.936C388.291,455.067,405.638,468.165,431.52,468.165"/>
+  </symbol>
+</svg>
+<script>
+(function(){
+  const sym = document.getElementById('savills-sym');
+  if (!sym) return;
+  const svgStr = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500.003">' + sym.innerHTML + '</svg>';
+  document.getElementById('favicon').href = 'data:image/svg+xml,' + encodeURIComponent(svgStr);
+})();
+</script>
+
+<!-- ══ LOGIN ══ -->
+<div id="screen-login">
+  <svg class="login-logo" viewBox="0 0 500 500.003" xmlns="http://www.w3.org/2000/svg"><rect fill="#FFE850" width="500" height="500.003"/><path fill="#CE171E" d="M72.884,468.165c-25.574,0-42.914-13.098-42.914-37.422v-0.936h14.038v0.621c0,15.904,11.536,25.268,28.998,25.268c9.356,0,27.132-4.057,27.132-19.031c0-28.997-66.737-8.416-66.737-49.893c0-20.896,19.463-30.252,38.797-30.252c22.765,0,38.232,13.094,38.232,34.305v0.936H96.399v-0.936c0-13.723-9.67-21.833-25.267-21.833c-10.915,0-23.701,4.678-23.701,17.158c0,27.132,66.737,8.102,66.737,49.894C114.168,458.183,93.461,468.165,72.884,468.165 M210.424,465.048c-1.244-3.119-2.13-13.723-2.13-18.708v-57.388c0-22.765-13.974-32.432-38.304-32.432c-22.45,0-42.099,9.981-42.099,34.619v0.936h14.038v-0.936c0-15.911,11.851-22.14,26.511-22.14c17.461,0,25.566,6.229,25.566,20.267c0,10.91-5.296,12.161-15.281,13.408l-5.296,0.629c-24.638,2.803-49.904,5.611-49.904,33.673c0,19.337,13.102,31.188,34.937,31.188c19.02,0,31.178-8.416,36.481-19.96c0,0,0,11.229,1.558,16.843H210.424z M194.006,424.193c0,8.108-2.802,15.596-8.105,21.21c-6.547,6.544-15.91,10.289-26.51,10.289c-10.286,0-21.829-5.614-21.829-19.023c0-16.218,17.462-19.956,36.174-22.146l9.979-1.244c2.815-0.307,8.112-1.25,10.292-3.116V424.193z M300.97,359.636h-1.244h-13.767l-28.647,89.323l-28.954-89.323h-16.261l37.424,105.409h15.282L300.97,359.636z M324.835,331.893c0-5.572-4.582-9.828-9.82-9.828c-5.24,0-9.821,4.256-9.821,9.5c0,5.568,4.581,9.82,9.821,9.82c5.238,0,9.82-4.252,9.82-9.82V331.893z M322.497,465.045V359.636h-0.936h-13.724v105.409H322.497z M351.495,465.045V319.717h-0.93h-13.723v145.328H351.495z M380.2,465.045V319.717h-0.937H365.54v145.328H380.2z M431.52,468.165c20.592,0,41.291-9.982,41.291-32.121c0-41.792-67.044-22.762-67.044-49.894c0-12.48,12.779-17.158,24.002-17.158c15.596,0,25.266,8.109,25.266,21.833v0.936h14.031v-0.936c0-21.21-15.468-34.305-38.54-34.305c-19.341,0-38.797,9.356-38.797,30.252c0,41.477,67.044,20.896,67.044,49.893c0,14.975-18.083,19.031-27.432,19.031c-17.162,0-29.012-9.363-29.012-25.268v-0.621h-14.038v0.936C388.291,455.067,405.638,468.165,431.52,468.165"/></svg>
+  <div class="login-title">Team Valuation</div>
+  <div class="login-sub">Inspectie Planner</div>
+  <div class="login-card">
+    <div class="login-field">
+      <label>Wachtwoord</label>
+      <input type="password" id="login-pw" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()" autofocus>
+    </div>
+  </div>
+  <div class="login-error" id="login-error"></div>
+  <button class="btn btn-primary login-btn" id="login-btn" onclick="login()">Inloggen</button>
+</div>
+
+<!-- ══ SCREEN: TOEVOEGEN ══ -->
+<div class="screen" id="screen-home">
+  <div class="nav-bar">
+    <svg class="nav-logo"><use href="#savills-sym"/></svg>
+    <span class="nav-bar-title" style="flex:1">Team Valuation</span>
+    <span id="sync-label" style="font-size:11px;color:var(--gray)">Verbinden…</span>
+  </div>
+  <div class="screen-scroll">
+    <div class="page-title">Nieuwe Inspectie</div>
+    <div class="form-section">
+      <div class="form-section-label">Locatie</div>
+      <div class="srch-wrap">
+        <div class="srch-inner">
+          <svg class="srch-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="inp-adres" class="srch-input" placeholder="Zoek adres…" autocomplete="off" oninput="onAdresInput()" onkeydown="onAdresKeydown(event)">
+        </div>
+        <ul id="adres-dropdown"></ul>
+        <div class="geo-status" id="geo-status"></div>
+      </div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">Wanneer</div>
+      <div class="form-card">
+        <div class="form-row-ios"><label>Datum</label><input type="date" id="inp-datum"></div>
+        <div class="form-row-ios"><label>Tijd</label><input type="time" id="inp-tijd" value="09:00"></div>
+      </div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">Details</div>
+      <div class="form-card">
+        <div class="form-row-ios"><label>Categorie</label><select id="inp-vastgoed"><option>Residentieel</option><option>Commercieel</option></select></div>
+        <div class="form-row-ios"><label>Type</label><select id="inp-type"><option>Intern en extern</option><option>Extern</option></select></div>
+        <div class="form-row-ios"><label>Inspecteur</label><select id="inp-inspecteur"><option value="">Automatisch</option></select></div>
+      </div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">Notities</div>
+      <div class="form-card"><div class="form-row-ios"><textarea id="inp-notities" placeholder="Opmerkingen toevoegen…"></textarea></div></div>
+    </div>
+    <div class="suggestion" id="suggestion-box">
+      <div class="suggestion-text" id="suggestion-text"></div>
+      <div class="suggestion-actions">
+        <button class="btn btn-sm btn-tinted" onclick="acceptSuggestion()">✓ Overnemen</button>
+        <button class="btn btn-sm btn-gray" onclick="hideSuggestion()">Zelf kiezen</button>
+      </div>
+    </div>
+    <div class="add-btn-wrap"><button class="btn btn-primary btn-full" onclick="voegToe()">+ Inspectie inplannen</button></div>
+  </div>
+</div>
+
+<!-- ══ OVERLAY: NIEUW PAND TOEVOEGEN ══ -->
+<div id="pand-modal-overlay" class="pand-modal-overlay hidden">
+  <div class="pand-modal">
+    <h3>Nog een pand toevoegen</h3>
+    <div class="form-card" style="margin-bottom:12px">
+      <div class="form-row-ios" style="flex-direction:column;align-items:stretch;gap:6px">
+        <label style="font-size:13px;color:var(--gray)">Adres</label>
+        <input type="text" id="pand-modal-adres" placeholder="Straat 456, Plaats" style="text-align:left;color:var(--text);font-size:16px" onkeydown="if(event.key==='Enter')bevestigNieuwPand()">
+      </div>
+    </div>
+    <div class="form-card" style="margin-bottom:16px">
+      <div class="form-row-ios" style="flex-direction:column;align-items:stretch;gap:6px">
+        <label style="font-size:13px;color:var(--gray)">Opmerkingen (optioneel)</label>
+        <textarea id="pand-modal-notities" placeholder="Korte notitie…" style="border:none;background:transparent;font-size:15px;font-family:inherit;outline:none;resize:vertical;min-height:50px;color:var(--text)"></textarea>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-gray" style="flex:1" onclick="sluitPandModal()">Annuleren</button>
+      <button class="btn btn-primary" style="flex:1" onclick="bevestigNieuwPand()">Binnengaan →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ OVERLAY: ALLE INSPECTIES ══ -->
+<div id="alle-insp-overlay" class="hidden" style="position:fixed;inset:0;z-index:300;background:white;display:flex;flex-direction:column;">
+  <div class="nav-bar">
+    <svg class="nav-logo"><use href="#savills-sym"/></svg>
+    <span class="nav-bar-title" style="flex:1">Alle inspecties</span>
+    <button onclick="sluitInspectiesTabel()" class="btn btn-sm btn-gray" style="font-size:12px">Sluiten</button>
+  </div>
+  <div id="alle-insp-inhoud" style="flex:1;overflow-y:auto;padding:24px 28px 48px;"></div>
+</div>
+
+<!-- ══ SCREEN: OVERZICHT ══ -->
+<div class="screen hidden" id="screen-overview">
+  <div class="nav-bar">
+    <svg class="nav-logo"><use href="#savills-sym"/></svg>
+    <span class="nav-bar-title" style="flex:1">Overzicht</span>
+    <div class="ov-view-toggle">
+      <button type="button" class="ov-view-btn actief" id="ov-view-split" onclick="setOverviewView('split')" title="Kaart + lijst">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/></svg>
+      </button>
+      <button type="button" class="ov-view-btn" id="ov-view-map" onclick="setOverviewView('map')" title="Alleen kaart">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg>
+      </button>
+    </div>
+    <button class="btn btn-sm btn-gray bulk-toggle-btn" id="bulk-toggle-btn" onclick="toggleBulkMode()" style="margin-left:6px">Selecteren</button>
+    <button onclick="toonInspectiesTabel()" class="btn btn-sm btn-tinted" style="font-size:13px;margin-left:6px">📋 Alle</button>
+  </div>
+  <div class="overview-body" id="overview-body">
+    <div class="overview-panel">
+      <div class="ov-header" style="flex-direction:column;align-items:stretch;gap:5px">
+        <div style="display:flex;align-items:center;gap:5px;width:100%">
+          <button class="ov-filter-btn active" data-f="recent" onclick="setOverviewFilter('recent')">Komend</button>
+          <button class="ov-filter-btn" data-f="all" onclick="setOverviewFilter('all')">Alles</button>
+          <select id="filter-days-back" onchange="setOverviewDaysBack(this.value)" style="flex:1;height:28px;font-size:12px;border:none;background:var(--bg);color:var(--text2);border-radius:7px;padding:0 6px;font-family:inherit;outline:none;display:none">
+            <option value="0">Vandaag</option>
+            <option value="3">-3 d.</option>
+            <option value="7">-1 wk.</option>
+            <option value="14">-2 wk.</option>
+            <option value="30">-1 mnd.</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:5px;width:100%">
+          <select id="filter-inspecteur" onchange="renderLijst()" style="flex:1;height:28px;padding:0 8px;font-size:12px;border:none;background:var(--blue-light);color:var(--blue);border-radius:8px;font-family:inherit;font-weight:500;outline:none;min-width:0">
+            <option value="">Alle inspecteurs</option>
+          </select>
+          <input type="date" id="filter-datum" onchange="setOverviewDatum(this.value)" style="flex:1;height:28px;padding:0 7px;font-size:12px;border:none;background:var(--bg);color:var(--text2);border-radius:8px;font-family:inherit;font-weight:500;outline:none;min-width:0;cursor:pointer" title="Filter op datum">
+        </div>
+      </div>
+      <span id="ov-count" style="display:none"></span>
+      <div class="ov-list" id="inspectie-lijst"></div>
+      <div class="bulk-action-bar" id="bulk-action-bar">
+        <span class="bulk-action-count" id="bulk-action-count">0 geselecteerd</span>
+        <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkDownloadExcel()">⬇️ Downloaden</button>
+        <button class="btn btn-sm btn-tinted" style="flex:1" onclick="bulkAddToAgenda()">📅 Agenda</button>
+      </div>
+    </div>
+    <div id="map"></div>
+  </div>
+</div>
+
+<!-- ══ SCREEN: UITVOEREN ══ -->
+<div class="screen hidden" id="screen-conduct">
+  <div class="nav-bar">
+    <button class="btn btn-sm btn-gray" onclick="showScreen('overview')" style="padding:5px 12px;font-size:13px">← Terug</button>
+    <span class="nav-bar-title" style="flex:1;text-align:center" id="conduct-nav-title">Inspectie</span>
+    <span id="conduct-save-status" style="font-size:11px;color:var(--green);min-width:60px;text-align:right"></span>
+    <svg class="nav-logo" style="margin-left:8px"><use href="#savills-sym"/></svg>
+  </div>
+  <div class="screen-scroll" id="conduct-content"></div>
+</div>
+
+<!-- ══ SCREEN: TEAM ══ -->
+<div class="screen hidden" id="screen-team">
+  <div class="nav-bar"><svg class="nav-logo"><use href="#savills-sym"/></svg><span class="nav-bar-title" style="flex:1">Team</span><span id="sync-label-team" style="font-size:11px;color:var(--gray)"></span>
+    <button class="gear-btn" onclick="openInstellingen()" title="Instellingen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <button onclick="logout()" style="font-size:12px;color:var(--gray);background:none;border:none;cursor:pointer;padding:4px 0 4px 10px;font-family:inherit">Uitloggen</button>
+  </div>
+  <div class="screen-scroll">
+    <div class="page-title">Team</div>
+    <div class="team-section"><div class="team-section-label">Inspecteurs</div><div class="team-card" id="team-lijst"></div></div>
+    <div class="team-section" style="margin-top:28px">
+      <div class="team-section-label">Nieuw lid toevoegen</div>
+      <div class="team-card">
+        <div class="form-row-ios"><label>Naam</label><input type="text" id="inp-naam" placeholder="Voornaam Achternaam"></div>
+        <div class="form-row-ios" style="flex-direction:column;align-items:flex-start;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px;width:100%">
+            <span style="font-size:16px;color:var(--text);min-width:90px">Icon</span>
+            <div style="flex:1"></div>
+            <button type="button" id="emoji-display" onclick="toggleEmojiPicker()" style="font-size:22px;background:var(--bg);border:none;cursor:pointer;padding:4px 8px;border-radius:8px;line-height:1">👤</button>
+            <div id="kleur-indicator" style="width:13px;height:13px;border-radius:50%;background:var(--gray2);flex-shrink:0;border:1px solid rgba(0,0,0,.1)"></div>
+          </div>
+          <div class="emoji-picker" id="emoji-picker" style="width:100%"></div>
+        </div>
+        <div class="form-row-ios" style="padding-top:12px"><button class="btn btn-primary btn-full" onclick="voegInspecteurToe()">+ Toevoegen</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ OVERLAY: INSTELLINGEN ══ -->
+<div class="settings-overlay hidden" id="settings-overlay">
+  <div class="nav-bar">
+    <svg class="nav-logo"><use href="#savills-sym"/></svg>
+    <span class="nav-bar-title" style="flex:1">Instellingen</span>
+    <button onclick="sluitInstellingen()" class="btn btn-sm btn-gray" style="font-size:12px">Sluiten</button>
+  </div>
+  <div class="screen-scroll">
+    <div class="page-title">Instellingen</div>
+    <div class="team-section">
+      <div class="team-section-label">Kaart</div>
+      <div class="team-card">
+        <div class="form-row-ios" style="flex-direction:column;align-items:stretch;gap:8px">
+          <label style="font-size:16px;color:var(--text)">CARTO API-key</label>
+          <input type="text" id="inp-carto-key" placeholder="cb1_…" spellcheck="false" autocapitalize="off" autocorrect="off" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;text-align:left;color:var(--text);background:var(--bg);padding:9px 11px;border-radius:8px;">
+          <div id="carto-key-status" style="font-size:12px;color:var(--gray);min-height:16px"></div>
+        </div>
+        <div class="form-row-ios" style="padding-top:12px;gap:8px">
+          <button class="btn btn-primary" style="flex:1" onclick="slaCartoKeyOp()">Opslaan</button>
+          <button class="btn btn-gray" style="flex:0 0 auto" onclick="herstelCartoKey()">Standaard</button>
+        </div>
+        <div class="form-row-ios" style="padding-top:4px">
+          <span style="font-size:12px;color:var(--gray);line-height:1.45">Nodig voor de achtergrondkaart. Gratis key aanvragen of beheren op <a href="https://carto.com/basemaps/apikey/" target="_blank" rel="noopener" style="color:var(--blue)">carto.com</a>. Deze instelling geldt alleen op dit apparaat.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TAB BAR ══ -->
+<nav class="tab-bar">
+  <button class="tab-item active" onclick="showScreen('home')">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3L3 9.5V20h6v-6h6v6h6V9.5L12 3z"/></svg>
+    Toevoegen
+  </button>
+  <button class="tab-item" onclick="showScreen('overview')">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
+    Overzicht
+  </button>
+  <button class="tab-item" onclick="showScreen('team')">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+    Team
+  </button>
+</nav>
+
+<script>
+// ─── CONSTANTEN ──────────────────────────────────────────────────────────────
+const INSPECTEUR_KLEUREN = ['#097CE8','#238291','#83007E','#3AA95C','#EF6B00','#D3397F','#25273A','#79828C']; // Savills brand secondary palette
+
+const EMOJI_CATEGORIEEN = [
+  { label: 'Personen', emojis: ['👤','👨','👩','👨🏻','👨🏼','👨🏽','👨🏾','👨🏿','👩🏻','👩🏼','👩🏽','👩🏾','👩🏿','👨‍🦰','👨‍🦱','👨‍🦳','👨‍🦲','👩‍🦰','👩‍🦱','👩‍🦳','👩‍🦲'] },
+  { label: 'Zakelijk', emojis: ['💼','📊','🏠','🏢','🔎','🔑','📋','🎯','⭐','🚗','📍','🏗️'] },
+  { label: 'Dieren',   emojis: ['🐱','🐶','🦊','🐻','🐼','🦁','🐯','🐸','🐵'] },
+];
+const KLEUR_OPTIES = ['#25273A','#097CE8','#238291','#3AA95C','#EF6B00','#D3397F','#83007E','#CE181E','#79828C','#FEDF00','#6CA7B1','#EE9855']; // Savills brand palette
+
+// FLOW Residentieel inspectierapport – 10 secties
+const KWALITEIT = ['Gedateerd','Basis','Standaard','Goed','Uitstekend'];
+const BEREIK    = ['Slecht','Matig','Voldoende','Goed','Uitstekend'];
+
+const FLOW_RESIDENTIAL = [
+  {
+    id:'sec_algemeen', titel:'Algemeen', icon:'📋',
+    velden:[
+      { id:'dossiernummer',                label:'Dossiernummer',             type:'text' },
+      { id:'flow_id',                      label:'FLOW ID',                   type:'text' },
+      { id:'inspection_date',              label:'Inspectiedatum',            type:'date' },
+      { id:'multi_family_dwellings',       label:'Type woning',               type:'dropdown', opties:['EGW – Eengezinswoning','MGW – Meergezinswoning'] },
+      { id:'responsible_rt_valuer_name',   label:'Verantwoordelijk taxateur', type:'dropdown', opties:'inspecteurs' },
+      { id:'client_name',                  label:'Opdrachtgever',             type:'text' },
+      { id:'inspection_type',              label:'Type inspectie',            type:'dropdown', opties:['Volledig','Drive-by'] },
+      { id:'remarks_object_general',       label:'Opmerkingen',               type:'textarea' },
+    ]
+  },
+  {
+    id:'sec_locatie', titel:'Locatie', icon:'📍',
+    velden:[
+      { id:'area_type',                        label:'Type gebied',                type:'dropdown', opties:['Centrum','Stedelijk','Randstedelijk','Suburbaan','Landelijk / Buiten'] },
+      { id:'accessibility_car',                label:'Bereikbaarheid auto',        type:'dropdown', opties:BEREIK },
+      { id:'accessibility_public_transport',   label:'Bereikbaarheid OV',          type:'dropdown', opties:BEREIK },
+      { id:'type_of_parking_spaces',           label:'Type parkeren',              type:'dropdown', opties:['Geen','Op straat','Eigen oprit','Carport','Garage','Parkeergarage'] },
+      { id:'parking_count',    label:'Aantal parkeerplaatsen', type:'integer',  conditie:{ veld:'type_of_parking_spaces', niet:'Geen' } },
+      { id:'parking_tariff',   label:'Parkeertarief (€/mnd)', type:'decimal',  conditie:{ veld:'type_of_parking_spaces', is:'Parkeergarage' } },
+      { id:'asset_integrated_in_area', label:'Object past in omgeving', type:'dropdown', opties:BEREIK },
+      { id:'adjoining_parcels',        label:'Aangrenzende percelen',   type:'text' },
+      { id:'remarks_location',         label:'Opmerkingen locatie',    type:'textarea' },
+    ]
+  },
+  {
+    id:'sec_gebruik', titel:'Gebruik', icon:'🔑',
+    velden:[
+      { id:'ownership_lease_type', label:'Eigendom / pacht type', type:'dropdown', opties:['Eigendom','Erfpacht','Huur','Anders'] },
+      { id:'remarks_property_use', label:'Opmerkingen gebruik',   type:'textarea' },
+    ]
+  },
+  {
+    id:'sec_objectomschrijving', titel:'Object omschrijving', icon:'🏘️',
+    velden:[
+      { id:'type_residential_house',       label:'Type woning (EGW)',      type:'dropdown', opties:['Vrijstaand','2-onder-1-kap','Rijwoning','Eindwoning','Hoekwoning','Bungalow'], conditie:{ veld:'multi_family_dwellings', begintMet:'EGW' } },
+      { id:'type_residential_appartment',  label:'Type woning (MGW)',      type:'dropdown', opties:['Appartement','Maisonnette','Duplex','Penthouse','Studio','Bovenwoning','Benedenwoning'], conditie:{ veld:'multi_family_dwellings', begintMet:'MGW' } },
+      { id:'selfcontaining_units',         label:'Aantal zelfstandige eenheden', type:'integer' },
+      { id:'construction_year_completion', label:'Bouwjaar',               type:'year' },
+      { id:'last_renovation_year',         label:'Jaar laatste renovatie', type:'year' },
+      { id:'number_of_floors',             label:'Aantal bouwlagen',       type:'integer' },
+      { id:'asset_description',            label:'Objectbeschrijving',     type:'textarea' },
+    ]
+  },
+  {
+    id:'sec_binnenzijde', titel:'Object binnenzijde', icon:'🛋️',
+    conditieSectie:{ veld:'inspection_type', is:'Volledig' },
+    velden:[
+      { id:'quality_of_interior_finishing', label:'Kwaliteit afwerking interieur', type:'dropdown', opties:KWALITEIT },
+      { id:'interior_finishing',            label:'Afwerkingsniveau beschrijving', type:'textarea' },
+      { id:'number_of_rooms',              label:'Aantal kamers',                 type:'integer' },
+      { id:'ventilation',                  label:'Ventilatie',                    type:'dropdown', opties:['Geen / Onbekend','Natuurlijk','Mechanisch','Gebalanceerd (WTW)'] },
+      { id:'elevator',                     label:'Lift aanwezig',                 type:'checkbox' },
+      { id:'lift_type',    label:'Type lift',              type:'dropdown', opties:['Personenlift','Goederenlift','Traplift'], conditie:{ veld:'elevator', is:true } },
+      { id:'lift_count',   label:'Aantal liften',          type:'integer',  conditie:{ veld:'elevator', is:true } },
+      { id:'brandpreventie', label:'Brandpreventie',        type:'checkboxGroup', opties:['Brandmelder','Sprinkler','Branddeuren','Blusmiddelen','Noodverlichting','Geen'] },
+      { id:'veiligheid',   label:'Veiligheid',              type:'checkboxGroup', opties:['Videofoon','Toegangscontrole','Cameratoezicht','Alarminstallatie','Geen'] },
+      { id:'verwarming',   label:'Verwarming',              type:'checkboxGroup', opties:['CV-ketel','Warmtepomp','Stadsverwarming','Vloerverwarming','Elektrisch','Geen'] },
+      { id:'interior_damaged',         label:'Schade aanwezig (interieur)',  type:'checkbox' },
+      { id:'interior_damaged_remarks', label:'Omschrijving schade',          type:'textarea', conditie:{ veld:'interior_damaged', is:true } },
+      { id:'interior_maintenance_assessment', label:'Onderhoudsstaat interieur', type:'dropdown', opties:BEREIK },
+      { id:'remarks_interior',         label:'Opmerkingen interieur',        type:'textarea' },
+    ]
+  },
+  {
+    id:'sec_buitenzijde', titel:'Object buitenzijde', icon:'🏗️',
+    velden:[
+      { id:'construction', label:'Constructie',     type:'checkboxGroup', opties:['Beton','Staal','Hout','Baksteen','Kalkzandsteen','Gemengd','Anders'] },
+      { id:'facades',      label:'Gevelbekleding',  type:'checkboxGroup', opties:['Baksteen','Metselwerk gevoegd','Metselwerk geschilderd','Stucwerk','Houten gevelbetimmering','Kunststof gevelbekleding','Metalen gevelbekleding','Composiet','Glas','Betonpanelen','Zandsteenplaten','Hardsteen','Spouw / geïsoleerd','Anders'] },
+      { id:'frames',       label:'Kozijnen',         type:'dropdown', opties:['Hout','Kunststof','Aluminium','Staal','Anders'] },
+      { id:'glazing',      label:'Beglazing',        type:'dropdown', opties:['Enkel','Dubbel','HR','HR+','HR++','Triple'] },
+      { id:'roof_shape',   label:'Dakvorm',          type:'dropdown', opties:['Plat dak','Lessenaarsdak','Zadeldak','Schilddak','Mansardedak','Tentdak','Wolfsdak','Samengesteld','Puntdak','Tongewelf','Koepel','Bergnok','Anders'] },
+      { id:'roof_construction', label:'Dakconstructie', type:'dropdown', opties:['Hout','Staal','Beton','Anders'] },
+      { id:'roofing',      label:'Dakbedekking',     type:'dropdown', opties:['Bitumen','EPDM','PVC','Dakpannen','Leien','Zink','Koper','Golfplaten','Riet','Groen dak','Anders'] },
+      { id:'foundation',   label:'Fundering',        type:'dropdown', opties:['Houten palen','Betonnen palen','Stalen palen','Op staal','Kellerbouw','Onbekend'] },
+      { id:'storage_units_residential', label:'Bergingen aanwezig', type:'checkbox' },
+      { id:'storage_sqm',  label:'Berging oppervlak (m²)', type:'decimal',   conditie:{ veld:'storage_units_residential', is:true } },
+      { id:'storage_type', label:'Type berging',           type:'dropdown',  opties:['Berging','Garage','Schuur','Kelder'], conditie:{ veld:'storage_units_residential', is:true } },
+      { id:'exterior_damaged',         label:'Schade aanwezig (exterieur)',  type:'checkbox' },
+      { id:'exterior_damaged_remarks', label:'Omschrijving schade',          type:'textarea', conditie:{ veld:'exterior_damaged', is:true } },
+      { id:'exterior_maintenance_assessment', label:'Onderhoudsstaat exterieur', type:'dropdown', opties:BEREIK },
+      { id:'remarks_exterior',         label:'Opmerkingen exterieur',        type:'textarea' },
+    ]
+  },
+  {
+    id:'sec_buitenruimte', titel:'Buitenruimte', icon:'🌿',
+    velden:[
+      { id:'outdoor_spaces',  label:'Buitenruimten',        type:'checkboxGroup', opties:['Geen','Tuin','Balkon','Dakterras','Terras','Loggia'] },
+      { id:'private_outdoor', label:'Privé buitenruimte',   type:'checkbox' },
+      { id:'outdoor_type',    label:'Type buitenruimte',    type:'dropdown', opties:['Voortuin','Achtertuin','Zijtuin','Daktuin','Balkon','Terras','Gemeenschappelijk'], conditie:{ veld:'private_outdoor', is:true } },
+      { id:'outdoor_sqm',     label:'Oppervlak (m²)',       type:'decimal',  conditie:{ veld:'private_outdoor', is:true } },
+      { id:'outdoor_maintenance', label:'Onderhoudsstaat',  type:'dropdown', opties:BEREIK, conditie:{ veld:'private_outdoor', is:true } },
+      { id:'remarks_outdoor', label:'Opmerkingen buitenruimte', type:'textarea' },
+    ]
+  },
+  {
+    id:'sec_duurzaamheid', titel:'Duurzaamheid', icon:'♻️',
+    velden:[
+      { id:'build_quality',       label:'Bouwkwaliteit',       type:'dropdown', opties:BEREIK },
+      { id:'energy_label',        label:'Energielabel',        type:'dropdown', opties:['A++++','A+++','A++','A+','A','B','C','D','E','F','G','Onbekend'] },
+      { id:'largely_sustainable', label:'Grotendeels duurzaam', type:'checkbox' },
+      { id:'remarks_sustainability', label:'Opmerkingen duurzaamheid', type:'textarea' },
+    ]
+  },
+  {
+    id:'sec_gespreksverslag', titel:'Gespreksverslag', icon:'💬',
+    velden:[
+      { id:'interview_summary',          label:'Samenvatting gesprek',     type:'textarea' },
+      { id:'interview_participant_name', label:'Gesproken met',             type:'text' },
+    ]
+  },
+  {
+    id:'sec_eindkwalificatie', titel:'Eindkwalificatie', icon:'⭐',
+    velden:[
+      { id:'final_assessment_location', label:'Eindoordeel locatie',    type:'scoreButtons', opties:BEREIK },
+      { id:'final_assessment_interior', label:'Eindoordeel interieur',  type:'scoreButtons', opties:BEREIK, conditie:{ veld:'inspection_type', is:'Volledig' } },
+      { id:'final_assessment_exterior', label:'Eindoordeel exterieur',  type:'scoreButtons', opties:BEREIK },
+      { id:'final_assessment_explanation', label:'Toelichting eindoordeel', type:'textarea' },
+      { id:'remarks_final',            label:'Overige opmerkingen',    type:'textarea' },
+    ]
+  },
+];
+
+// ─── EMOJI/KLEUR STATE ───────────────────────────────────────────────────────
+let huidigEmoji = '👤', huidigKleur = null, emojiSectieOpen = false;
+
+function vullPicker(pickerId, huidEmoji, huidKleur, mode, emojiOpen) {
+  const picker = document.getElementById(pickerId);
+  if (!picker) return;
+  const autoSwatch = `<button type="button" class="kleur-swatch${huidKleur === null ? ' actief' : ''}" onclick="kiesKleurMode('${mode}',null)" style="background:var(--gray2)" title="Automatisch"></button>`;
+  const kleurBtns = KLEUR_OPTIES.map(k => `<button type="button" class="kleur-swatch${huidKleur === k ? ' actief' : ''}" onclick="kiesKleurMode('${mode}','${k}')" style="background:${k}"></button>`).join('');
+  const emojiToggle = `<div class="emoji-cat-label" style="cursor:pointer;display:flex;justify-content:space-between;margin-top:10px;user-select:none" onclick="toggleEmojiSectie('${mode}')">Emoji <span>${emojiOpen ? '▲' : '▼'}</span></div>`;
+  let emojiHTML = '';
+  if (emojiOpen) {
+    emojiHTML = EMOJI_CATEGORIEEN.map(cat => {
+      const btns = cat.emojis.map(e => `<button type="button" class="emoji-btn-item${e === huidEmoji ? ' actief' : ''}" data-emoji="${e}" onclick="kiesEmojiMode('${mode}',this.dataset.emoji)">${e}</button>`).join('');
+      return `<div class="emoji-cat-label" style="font-size:9px">${cat.label}</div><div class="emoji-rij">${btns}</div>`;
+    }).join('');
+  }
+  picker.innerHTML = `<div class="emoji-cat-label">Kleur</div><div class="emoji-rij" style="gap:6px">${autoSwatch}${kleurBtns}</div>${emojiToggle}${emojiHTML}`;
+}
+function toggleEmojiPicker() { const p = document.getElementById('emoji-picker'); p.classList.toggle('open'); if (p.classList.contains('open')) { emojiSectieOpen = false; vullPicker('emoji-picker', huidigEmoji, huidigKleur, 'add', false); } }
+function toggleEmojiSectie(mode) { if (mode==='add') { emojiSectieOpen=!emojiSectieOpen; vullPicker('emoji-picker',huidigEmoji,huidigKleur,'add',emojiSectieOpen); } else { editEmojiSectieOpen=!editEmojiSectieOpen; vullPicker(`emoji-picker-edit-${mode}`,editEmoji,editKleur,mode,editEmojiSectieOpen); } }
+function kiesEmojiMode(mode, emoji) { if (mode==='add') { huidigEmoji=emoji; document.getElementById('emoji-display').textContent=emoji; vullPicker('emoji-picker',emoji,huidigKleur,'add',emojiSectieOpen); } else { editEmoji=emoji; const d=document.getElementById(`edit-emoji-display-${mode}`); if(d) d.textContent=emoji; vullPicker(`emoji-picker-edit-${mode}`,emoji,editKleur,mode,editEmojiSectieOpen); } }
+function kiesKleurMode(mode, kleur) { if (mode==='add') { huidigKleur=kleur; const dot=document.getElementById('kleur-indicator'); if(dot) dot.style.background=kleur||'var(--gray2)'; vullPicker('emoji-picker',huidigEmoji,kleur,'add',emojiSectieOpen); } else { editKleur=kleur; const dot=document.getElementById(`edit-kleur-indicator-${mode}`); if(dot) dot.style.background=kleur||'var(--gray2)'; vullPicker(`emoji-picker-edit-${mode}`,editEmoji,kleur,mode,editEmojiSectieOpen); } }
+function toggleEditPicker(id) { const p=document.getElementById(`emoji-picker-edit-${id}`); if(!p) return; p.classList.toggle('open'); if(p.classList.contains('open')) { editEmojiSectieOpen=false; vullPicker(`emoji-picker-edit-${id}`,editEmoji,editKleur,String(id),false); } }
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let state = { inspecteurs:[], inspecties:[], selectedId:null, pendingGeo:null, pendingAdres:'', suggestion:null };
+let overviewFilter = 'recent'; // 'recent' | 'all'
+let overviewDaysBack = 0;
+let overviewDatum = '';
+let overviewView = 'split'; // 'split' | 'map'
+let bulkMode = false;
+let bulkSelected = new Set();
+
+// ─── SUPABASE ────────────────────────────────────────────────────────────────
+const { createClient } = supabase;
+const db = createClient('https://lpkyfyucvbtyohphkgbx.supabase.co','sb_publishable_IyN8IbPTAgnFpcgzAXGR-Q_RQm0pJhS');
+
+// ─── CARTO BASEMAPS ──────────────────────────────────────────────────────────
+// Standaardkey; te overschrijven via Team ▸ Kaart. Beheer: https://dashboard.basemaps.carto.com/signin
+// Gratis tot 5 mln tegelverzoeken per maand. Attributie moet zichtbaar blijven.
+const CARTO_KEY_DEFAULT = 'cb1_3h30_1_b6be0cb0ed247695e313317c';
+function cartoKey() { try { return localStorage.getItem('cartoKey') || CARTO_KEY_DEFAULT; } catch(e) { return CARTO_KEY_DEFAULT; } }
+function cartoTiles() { return 'https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=' + encodeURIComponent(cartoKey()); }
+const CARTO_ATTR  = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>';
+
+function setSyncStatus(s) {
+  const map = { verbonden:`<span style="color:#3AA95C">●</span> Live`, opslaan:`<span style="color:#EF6B00">●</span> Opslaan…`, fout:`<span style="color:#CE181E">●</span> Fout`, verbinden:`<span style="color:#79828C">●</span> Verbinden…` };
+  ['sync-label','sync-label-team'].forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=map[s]||''; });
+}
+
+async function laadData() {
+  setSyncStatus('verbinden');
+  const [{ data: inspecteurs, error: e1 }, { data: inspecties, error: e2 }] = await Promise.all([
+    db.from('inspecteurs').select('*').order('id'),
+    db.from('inspecties').select('*').order('datum'),
+  ]);
+  if (e1 || e2) { setSyncStatus('fout'); console.error(e1||e2); return; }
+  state.inspecteurs = inspecteurs || [];
+  state.inspecties  = (inspecties || []).map(i => ({ ...i, inspecteurId: i.inspecteur_id, bevindingen: i.bevindingen || {}, rapportStatus: i.rapport_status || 'gepland', vastgoedType: i.vastgoed_type || 'Residentieel', dossiernummer: i.dossiernummer || '', flowId: i.flow_id || '', panden: i.panden || [], fotos: i.fotos || [] }));
+  state.selectedId  = null;
+  renderTeam(); renderMarkers(); renderLijst();
+  setSyncStatus('verbonden');
+}
+
+db.channel('sync')
+  .on('postgres_changes', { event:'*', schema:'public', table:'inspecteurs' }, laadData)
+  .on('postgres_changes', { event:'*', schema:'public', table:'inspecties' }, laadData)
+  .subscribe();
+
+async function dbVoegInspectieToe(data) {
+  setSyncStatus('opslaan');
+  const { error } = await db.from('inspecties').insert({ adres:data.adres,datum:data.datum,tijd:data.tijd,type:data.type,inspecteur_id:data.inspecteurId||null,notities:data.notities||'',lat:data.lat||null,lng:data.lng||null,vastgoed_type:data.vastgoedType||'Residentieel' });
+  if (error) { setSyncStatus('fout'); alert('Fout: '+error.message); return false; }
+  await laadData(); return true;
+}
+async function dbUpdateInspectie(id, data) {
+  setSyncStatus('opslaan');
+  const { error } = await db.from('inspecties').update({ adres:data.adres,datum:data.datum,tijd:data.tijd,type:data.type,inspecteur_id:data.inspecteurId||null,notities:data.notities||'',lat:data.lat||null,lng:data.lng||null,vastgoed_type:data.vastgoedType||'Residentieel',dossiernummer:data.dossiernummer||null,flow_id:data.flowId||null }).eq('id',id);
+  if (error) { setSyncStatus('fout'); alert('Fout: '+error.message); return false; }
+  await laadData(); return true;
+}
+async function dbVerwijderInspectie(id) { const { error }=await db.from('inspecties').delete().eq('id',id); if(error){setSyncStatus('fout');alert('Fout: '+error.message);return;} await laadData(); }
+async function dbVoegInspecteurToe(naam,emoji='👤',kleur=null) { setSyncStatus('opslaan'); const { error }=await db.from('inspecteurs').insert({naam,emoji,kleur}); if(error){setSyncStatus('fout');alert('Fout: '+error.message);return false;} await laadData(); return true; }
+async function dbVerwijderInspecteur(id) { const { error }=await db.from('inspecteurs').delete().eq('id',id); if(error){setSyncStatus('fout');alert('Fout: '+error.message);return;} await laadData(); }
+async function dbUpdateInspecteur(id,naam,emoji,kleur) { setSyncStatus('opslaan'); const { error }=await db.from('inspecteurs').update({naam,emoji,kleur}).eq('id',id); if(error){setSyncStatus('fout');alert('Fout: '+error.message);return false;} await laadData(); return true; }
+
+// ─── EDIT INSPECTEUR ─────────────────────────────────────────────────────────
+let editInspecteurId=null, editEmoji='👤', editKleur=null, editEmojiSectieOpen=false;
+function startEditInspecteur(id) { const insp=state.inspecteurs.find(x=>x.id===id); if(!insp) return; editInspecteurId=id; editEmoji=insp.emoji||'👤'; editKleur=insp.kleur||null; editEmojiSectieOpen=false; renderTeam(); }
+function cancelEditInspecteur() { editInspecteurId=null; renderTeam(); }
+async function slaInspecteurOp(id) { const naam=document.getElementById(`edit-insp-naam-${id}`).value.trim(); if(!naam){alert('Vul een naam in.');return;} const ok=await dbUpdateInspecteur(id,naam,editEmoji,editKleur); if(ok){editInspecteurId=null;renderTeam();} }
+
+// ─── MAP (lazy init) ─────────────────────────────────────────────────────────
+let map, mapReady=false, markers={}, baseLayer=null;
+
+function initMap() {
+  if (mapReady) { map.invalidateSize(); return; }
+  mapReady = true;
+  map = L.map('map').setView([52.3,5.0],8);
+  baseLayer = L.tileLayer(cartoTiles(),{ attribution:CARTO_ATTR, subdomains:'abcd', maxZoom:20 }).addTo(map);
+  const legend = L.control({ position:'bottomright' });
+  legend.onAdd = () => { const d=L.DomUtil.create('div','legend'); d.id='map-legend'; return d; };
+  legend.addTo(map);
+  renderMarkers();
+}
+
+function kleurVoorInspecteur(id) { const idx=state.inspecteurs.findIndex(i=>i.id===id); if(idx<0) return '#888'; const insp=state.inspecteurs[idx]; return insp.kleur||INSPECTEUR_KLEUREN[idx%INSPECTEUR_KLEUREN.length]; }
+
+function maakMarker(inspectie) {
+  const kleur=kleurVoorInspecteur(inspectie.inspecteurId);
+  const icon=L.divIcon({ className:'', html:`<div style="background:${kleur};border:2px solid white;border-radius:50%;width:16px;height:16px;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer;" title="${inspectie.adres}"></div>`, iconSize:[16,16], iconAnchor:[8,8] });
+  const m=L.marker([inspectie.lat,inspectie.lng],{icon}).addTo(map).bindPopup(popupHtml(inspectie));
+  m.on('click',()=>selectInspectie(inspectie.id));
+  return m;
+}
+function popupHtml(i) { const insp=state.inspecteurs.find(x=>x.id===i.inspecteurId); return `<b>${i.adres}</b><br>${formatDatum(i.datum)} ${i.tijd}<br><span style="color:#888">${i.type}</span><br>${insp?(insp.emoji||'👤'):'👤'} ${insp?insp.naam:'—'}`; }
+function gefilterdInspecties() {
+  const filterVal = document.getElementById('filter-inspecteur')?.value;
+  let insp = [...state.inspecties].sort((a,b)=>a.datum.localeCompare(b.datum));
+  if (filterVal) insp = insp.filter(i=>i.inspecteurId===+filterVal);
+  if (overviewDatum) {
+    insp = insp.filter(i => i.datum === overviewDatum);
+  } else if (overviewFilter==='recent') {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-overviewDaysBack);
+    const cutoffStr = cutoff.toISOString().slice(0,10);
+    const today = new Date().toISOString().slice(0,10);
+    insp = insp.filter(i => i.datum >= (overviewDaysBack > 0 ? cutoffStr : today));
+  }
+  return insp;
+}
+
+function setOverviewDatum(val) { overviewDatum = val; renderLijst(); }
+
+// ─── KAART/LIJST WEERGAVE ────────────────────────────────────────────────────
+function setOverviewView(v) {
+  overviewView = v;
+  document.getElementById('overview-body').classList.toggle('map-only', v==='map');
+  document.getElementById('ov-view-split').classList.toggle('actief', v==='split');
+  document.getElementById('ov-view-map').classList.toggle('actief', v==='map');
+  setTimeout(()=>{ if (mapReady) map.invalidateSize(); }, 200);
+}
+
+// ─── BULK SELECTIE (overzicht) ───────────────────────────────────────────────
+function toggleBulkMode() {
+  bulkMode = !bulkMode;
+  bulkSelected.clear();
+  document.getElementById('bulk-toggle-btn').textContent = bulkMode ? 'Klaar' : 'Selecteren';
+  document.getElementById('bulk-toggle-btn').classList.toggle('bulk-actief', bulkMode);
+  document.getElementById('bulk-toggle-btn').classList.toggle('btn-gray', !bulkMode);
+  state.selectedId = null;
+  renderLijst();
+}
+function toggleBulkSelect(id) {
+  if (bulkSelected.has(id)) bulkSelected.delete(id); else bulkSelected.add(id);
+  renderLijst();
+}
+function updateBulkActionBar() {
+  const bar=document.getElementById('bulk-action-bar');
+  const n=bulkSelected.size;
+  bar.classList.toggle('show', bulkMode && n>0);
+  document.getElementById('bulk-action-count').textContent = `${n} geselecteerd`;
+}
+function bulkDownloadExcel() {
+  const ids=[...bulkSelected]; if(!ids.length) return;
+  const wb = XLSX.utils.book_new();
+  const usedNamen = new Set();
+  ids.forEach(id => {
+    const insp = state.inspecties.find(i=>i.id===id); if(!insp) return;
+    const ws = bouwInspectieSheet(insp);
+    let naam = (insp.adres||'Inspectie').replace(/[^a-zA-Z0-9]/g,'_').slice(0,25) || 'Inspectie';
+    let uniek=naam, teller=2; while(usedNamen.has(uniek)) { uniek=`${naam}_${teller++}`; }
+    usedNamen.add(uniek);
+    XLSX.utils.book_append_sheet(wb, ws, uniek.slice(0,31));
+  });
+  XLSX.writeFile(wb, `Inspecties_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+function bulkAddToAgenda() {
+  const ids=[...bulkSelected]; if(!ids.length) return;
+  if (ids.length>5 && !confirm(`${ids.length} tabbladen openen?`)) return;
+  ids.forEach((id,idx)=>setTimeout(()=>openInOutlook(id),idx*400));
+}
+
+// ─── INSTELLINGEN ────────────────────────────────────────────────────────────
+function openInstellingen() { document.getElementById('settings-overlay').classList.remove('hidden'); renderCartoKey(); }
+function sluitInstellingen() { document.getElementById('settings-overlay').classList.add('hidden'); }
+
+function renderMarkers() { if(!mapReady) return; Object.values(markers).forEach(m=>map.removeLayer(m)); markers={}; gefilterdInspecties().forEach(i=>{ if(i.lat&&i.lng) markers[i.id]=maakMarker(i); }); renderLegend(); }
+function renderLegend() { const el=document.getElementById('map-legend'); if(!el) return; const actief=state.inspecteurs.filter(insp=>state.inspecties.some(i=>i.inspecteurId===insp.id)); el.innerHTML=actief.map(insp=>{ const kleur=kleurVoorInspecteur(insp.id); return `<div style="display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:${kleur};display:inline-block;flex-shrink:0;border:1.5px solid white;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>${insp.naam}</div>`; }).join(''); }
+
+// ─── GEOCODING ───────────────────────────────────────────────────────────────
+let geocodeTimer=null, dropdownResults=[], dropdownIndex=-1;
+function onAdresInput() { const val=document.getElementById('inp-adres').value.trim(); state.pendingGeo=null; state.pendingAdres=val; hideSuggestion(); clearTimeout(geocodeTimer); sluitDropdown(); if(val.length<4){setGeoStatus('');return;} setGeoStatus('⏳ Zoeken…'); geocodeTimer=setTimeout(()=>geocodeAutocomplete(val),400); }
+function onAdresKeydown(e) { const dd=document.getElementById('adres-dropdown'); if(dd.style.display==='none') return; if(e.key==='ArrowDown'){e.preventDefault();dropdownIndex=Math.min(dropdownIndex+1,dropdownResults.length-1);updateDropdownHighlight();} else if(e.key==='ArrowUp'){e.preventDefault();dropdownIndex=Math.max(dropdownIndex-1,0);updateDropdownHighlight();} else if(e.key==='Enter'&&dropdownIndex>=0){e.preventDefault();kiesDropdownItem(dropdownIndex);} else if(e.key==='Escape') sluitDropdown(); }
+function updateDropdownHighlight() { document.querySelectorAll('#adres-dropdown li').forEach((li,i)=>li.classList.toggle('active',i===dropdownIndex)); }
+async function geocodeAutocomplete(adres) { try { const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adres)}&format=json&limit=5&countrycodes=nl&addressdetails=1`,{headers:{'Accept-Language':'nl'}}); const data=await r.json(); if(data.length===0){setGeoStatus('❌ Niet gevonden');sluitDropdown();return;} dropdownResults=data;dropdownIndex=-1;setGeoStatus(''); const dd=document.getElementById('adres-dropdown'); dd.innerHTML=data.map((item,i)=>`<li onclick="kiesDropdownItem(${i})">${formatDropdownLabel(item)}</li>`).join(''); dd.style.display='block'; } catch(e){setGeoStatus('❌ Fout');} }
+function formatDropdownLabel(item) { const a=item.address||{}; const parts=[]; if(a.road) parts.push(a.road+(a.house_number?' '+a.house_number:'')); if(a.city||a.town||a.village) parts.push(a.city||a.town||a.village); return parts.length?parts.join(', '):item.display_name.split(',').slice(0,3).join(','); }
+function kiesDropdownItem(i) { const item=dropdownResults[i]; if(!item) return; const label=formatDropdownLabel(item); document.getElementById('inp-adres').value=label; state.pendingGeo={lat:+item.lat,lng:+item.lon}; state.pendingAdres=label; setGeoStatus(`✓ ${label}`); sluitDropdown(); if(mapReady) map.setView([+item.lat,+item.lon],15); bereken_suggestie(+item.lat,+item.lon); }
+function sluitDropdown() { const dd=document.getElementById('adres-dropdown'); dd.style.display='none'; dropdownResults=[];dropdownIndex=-1; }
+function setGeoStatus(msg) { document.getElementById('geo-status').textContent=msg; }
+
+document.addEventListener('click', e => {
+  if (!e.target.isConnected) return;
+  if (!e.target.closest('#inp-adres') && !e.target.closest('#adres-dropdown')) sluitDropdown();
+  if (!e.target.closest('#emoji-display') && !e.target.closest('#emoji-picker')) document.getElementById('emoji-picker')?.classList.remove('open');
+  if (!e.target.closest('[id^="edit-emoji-display-"]') && !e.target.closest('[id^="emoji-picker-edit-"]')) document.querySelectorAll('[id^="emoji-picker-edit-"]').forEach(p=>p.classList.remove('open'));
+});
+
+// ─── SUGGESTIE ───────────────────────────────────────────────────────────────
+function bereken_suggestie(lat,lng) { const datum=document.getElementById('inp-datum').value; if(!datum) return; const doelDatum=new Date(datum); const cands=state.inspecties.filter(i=>Math.abs(new Date(i.datum)-doelDatum)/86400000<=3); if(!cands.length) return; let beste=null,besteKm=Infinity; cands.forEach(i=>{ if(!i.lat||!i.lng) return; const km=haversine(lat,lng,i.lat,i.lng); if(km<besteKm){besteKm=km;beste=i;} }); if(beste&&besteKm<50){const insp=state.inspecteurs.find(x=>x.id===beste.inspecteurId); const dag=Math.round(Math.abs(new Date(beste.datum)-doelDatum)/86400000); const dagTxt=dag===0?'op dezelfde dag':`${dag} dag${dag>1?'en':''} eerder/later`; state.suggestion={inspecteurId:beste.inspecteurId}; document.getElementById('suggestion-text').innerHTML=`💡 <strong>${insp.naam}</strong> heeft al een inspectie op <strong>${Math.round(besteKm)} km</strong> afstand (${beste.adres}), ${dagTxt}. Toewijzen aan ${insp.naam}?`; document.getElementById('suggestion-box').style.display='block';} }
+function haversine(lat1,lng1,lat2,lng2){const R=6371,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
+function acceptSuggestion() { if(state.suggestion) document.getElementById('inp-inspecteur').value=state.suggestion.inspecteurId; hideSuggestion(); }
+function hideSuggestion() { document.getElementById('suggestion-box').style.display='none'; state.suggestion=null; }
+
+// ─── INSPECTIES CRUD ─────────────────────────────────────────────────────────
+async function voegToe() {
+  const adres=document.getElementById('inp-adres').value.trim(), datum=document.getElementById('inp-datum').value, tijd=document.getElementById('inp-tijd').value, type=document.getElementById('inp-type').value, notities=document.getElementById('inp-notities').value.trim(), vastgoedType=document.getElementById('inp-vastgoed').value;
+  let inspecteurId=+document.getElementById('inp-inspecteur').value||null;
+  if (!adres||!datum) { alert('Vul adres en datum in.'); return; }
+  if (!inspecteurId) { if(state.suggestion){inspecteurId=state.suggestion.inspecteurId;}else if(state.inspecteurs.length>0){const counts={};state.inspecteurs.forEach(i=>counts[i.id]=0);state.inspecties.forEach(i=>{if(counts[i.inspecteurId]!==undefined)counts[i.inspecteurId]++;});inspecteurId=+Object.entries(counts).sort((a,b)=>a[1]-b[1])[0][0];} }
+  const ok=await dbVoegInspectieToe({adres,datum,tijd,type,inspecteurId,notities,vastgoedType,lat:state.pendingGeo?.lat||null,lng:state.pendingGeo?.lng||null});
+  if (!ok) return;
+  document.getElementById('inp-adres').value=''; document.getElementById('inp-datum').value=''; document.getElementById('inp-notities').value='';
+  setGeoStatus(''); hideSuggestion(); state.pendingGeo=null;
+  showScreen('overview');
+  const insp=state.inspecteurs.find(x=>x.id===inspecteurId);
+  if (confirm(`Inspectie ingepland voor ${insp?.naam??'inspecteur'}!\n\n📅 Toevoegen aan agenda?`)) {
+    const { data }=await db.from('inspecties').select('id').eq('adres',adres).eq('datum',datum).order('id',{ascending:false}).limit(1);
+    if (data?.[0]) openInOutlook(data[0].id);
+  }
+}
+async function verwijderInspectie(id) { if(!confirm('Inspectie verwijderen?')) return; await dbVerwijderInspectie(id); state.selectedId=null; }
+function selectInspectie(id) { if(state.selectedId===id){state.selectedId=null;renderLijst();return;} state.selectedId=id; renderLijst(); const i=state.inspecties.find(x=>x.id===id); if(i&&markers[id]&&mapReady){map.setView([i.lat,i.lng],14);markers[id].openPopup();} }
+
+// ─── RENDER LIJST ────────────────────────────────────────────────────────────
+function setOverviewFilter(f) { overviewFilter=f; renderLijst(); }
+function setOverviewDaysBack(n) { overviewDaysBack=+n; renderLijst(); }
+
+function renderLijst() {
+  const container=document.getElementById('inspectie-lijst');
+  let inspecties=gefilterdInspecties();
+  renderMarkers();
+  // update filter button states
+  document.querySelectorAll('.ov-filter-btn').forEach(b=>b.classList.toggle('active', b.dataset.f===overviewFilter));
+  const daysEl=document.getElementById('filter-days-back'); if(daysEl) daysEl.style.display=overviewFilter==='recent'?'':'none';
+  const countEl=document.getElementById('ov-count');
+  if (countEl) countEl.textContent=`${inspecties.length} inspectie${inspecties.length!==1?'s':''}`;
+  container.classList.toggle('bulk-mode', bulkMode);
+  if (!inspecties.length) { container.innerHTML='<div class="empty">Geen inspecties gevonden.</div>'; updateBulkActionBar(); return; }
+
+  container.innerHTML = inspecties.map(i => {
+    const insp=state.inspecteurs.find(x=>x.id===i.inspecteurId);
+    const sel=!bulkMode && state.selectedId===i.id;
+    const status=i.rapportStatus||'gepland';
+    const statusBadge = status==='afgerond' ? `<span class="badge badge-green">✓ Afgerond</span>` : status==='bezig' ? `<span class="badge badge-orange">⏳ Bezig</span>` : `<span class="badge badge-gray">Gepland</span>`;
+    const inspOpts=state.inspecteurs.map(x=>`<option value="${x.id}" ${x.id===i.inspecteurId?'selected':''}>${x.naam}</option>`).join('');
+    const pandenCount = (i.panden && i.panden.length) ? i.panden.length + 1 : 1;
+    const pandenBadge = pandenCount>1 ? `<span class="badge badge-gray">🏠 ${pandenCount} panden</span>` : '';
+    const checked = bulkSelected.has(i.id);
+    const clickHandler = bulkMode ? `toggleBulkSelect(${i.id})` : `selectInspectie(${i.id})`;
+    const checkbox = bulkMode ? `<div class="bulk-checkbox${checked?' checked':''}">${checked?'✓':''}</div>` : '';
+
+    const editForm = sel ? `
+      <div class="edit-form" onclick="event.stopPropagation()">
+        <div class="form-row"><label>Adres</label><input type="text" id="edit-adres-${i.id}" value="${i.adres.replace(/"/g,'&quot;')}"></div>
+        <div class="form-row-2">
+          <div><label>Datum</label><input type="date" id="edit-datum-${i.id}" value="${i.datum}"></div>
+          <div><label>Tijd</label><input type="time" id="edit-tijd-${i.id}" value="${i.tijd}"></div>
+        </div>
+        <div class="form-row-2">
+          <div><label>Dossiernummer</label><input type="text" id="edit-dossier-${i.id}" value="${i.dossiernummer||''}" placeholder="—"></div>
+          <div><label>FLOW ID</label><input type="text" id="edit-flowid-${i.id}" value="${i.flowId||''}" placeholder="—"></div>
+        </div>
+        <div class="form-row"><label>Type</label><select id="edit-type-${i.id}"><option ${i.type==='Intern en extern'?'selected':''}>Intern en extern</option><option ${i.type==='Extern'?'selected':''}>Extern</option></select></div>
+        <div class="form-row"><label>Inspecteur</label><select id="edit-insp-${i.id}"><option value="">— Geen —</option>${inspOpts}</select></div>
+        <div class="form-row"><label>Notities</label><textarea id="edit-notities-${i.id}">${i.notities||''}</textarea></div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" style="flex:1" onclick="slaanOp(${i.id})">Opslaan</button>
+          <button class="btn btn-sm btn-gray" onclick="openInOutlook(${i.id})">📅</button>
+          <button class="btn btn-sm btn-red" onclick="verwijderInspectie(${i.id})">✕</button>
+        </div>
+      </div>` : '';
+
+    const statusAccent = status==='afgerond' ? 'var(--green)' : status==='bezig' ? 'var(--orange)' : 'var(--gray2)';
+    return `<div class="card ${sel?'selected':''}" style="border-left-color:${statusAccent}" onclick="${clickHandler}">
+      ${checkbox}
+      <div class="card-top">
+        <div class="card-address">${i.adres}</div>
+        <div class="card-date">${formatDatum(i.datum)}</div>
+      </div>
+      <div class="card-meta">
+        <span style="font-size:14px;line-height:1">${insp?(insp.emoji||'👤'):'👤'}</span>
+        <span>${insp?insp.naam:'—'}</span>
+        <span>·</span><span>${i.tijd}</span><span>·</span>
+        <span class="badge">${i.type}</span>
+        ${statusBadge}
+        ${pandenBadge}
+      </div>
+      ${i.notities&&!sel?`<div style="font-size:12px;color:var(--text3);margin-top:5px">${i.notities}</div>`:''}
+      ${!bulkMode?`<div class="card-actions" onclick="event.stopPropagation()">
+        <button class="btn btn-sm btn-primary" onclick="showConductScreen(${i.id})">📋 Uitvoeren</button>
+        ${status==='afgerond'?`<button class="btn btn-sm btn-green" onclick="genereerRapport(${i.id})">📄 Rapport</button>`:''}
+        <button class="btn btn-sm btn-gray" onclick="openInOutlook(${i.id})">📅</button>
+        <button class="btn btn-sm btn-red" onclick="verwijderInspectie(${i.id})">✕</button>
+      </div>`:''}
+      ${editForm}
+    </div>`;
+  }).join('');
+  updateBulkActionBar();
+}
+
+async function slaanOp(id) {
+  const i=state.inspecties.find(x=>x.id===id); if(!i) return;
+  const nieuwAdres=document.getElementById(`edit-adres-${id}`).value.trim(), datum=document.getElementById(`edit-datum-${id}`).value, tijd=document.getElementById(`edit-tijd-${id}`).value, type=document.getElementById(`edit-type-${id}`).value, inspecteurId=+document.getElementById(`edit-insp-${id}`).value||null, notities=document.getElementById(`edit-notities-${id}`).value.trim();
+  const vastgoedType = i.vastgoedType || 'Residentieel';
+  const dossiernummer = document.getElementById(`edit-dossier-${id}`)?.value.trim() || null;
+  const flowId = document.getElementById(`edit-flowid-${id}`)?.value.trim() || null;
+  let lat=i.lat, lng=i.lng;
+  if (nieuwAdres!==i.adres) { try { const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(nieuwAdres)}&format=json&limit=1&countrycodes=nl`,{headers:{'Accept-Language':'nl'}}); const data=await r.json(); if(data.length>0){lat=+data[0].lat;lng=+data[0].lon;} } catch(e){} }
+  await dbUpdateInspectie(id,{adres:nieuwAdres,datum,tijd,type,inspecteurId,notities,vastgoedType,dossiernummer,flowId,lat,lng}); state.selectedId=null;
+}
+
+// ─── OUTLOOK ─────────────────────────────────────────────────────────────────
+function openInOutlook(id) {
+  const i=state.inspecties.find(x=>x.id===id); if(!i) return;
+  const insp=state.inspecteurs.find(x=>x.id===i.inspecteurId);
+  const [jaar,maand,dag]=i.datum.split('-'), [uur,min]=i.tijd.split(':');
+  const start=new Date(+jaar,+maand-1,+dag,+uur,+min), einde=new Date(start.getTime()+90*60000);
+  const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:00`;
+  const body=[`Type: ${i.type}`,`Inspecteur: ${insp?insp.naam:'—'}`,i.notities?`Notities: ${i.notities}`:''].filter(Boolean).join('\n');
+  const params=new URLSearchParams({subject:`Inspectie – ${i.adres}`,startdt:fmt(start),enddt:fmt(einde),location:i.adres,body});
+  window.open(`https://outlook.office.com/calendar/action/compose?${params}`,'_blank');
+}
+function openAlleInOutlook() {
+  const filterVal=+document.getElementById('filter-inspecteur').value||null;
+  const lijst=filterVal?state.inspecties.filter(i=>i.inspecteurId===filterVal):state.inspecties;
+  if(!lijst.length){alert('Geen inspecties.');return;} if(lijst.length>5&&!confirm(`${lijst.length} tabbladen openen?`)) return;
+  lijst.forEach((i,idx)=>setTimeout(()=>openInOutlook(i.id),idx*400));
+}
+
+// ─── TEAM ────────────────────────────────────────────────────────────────────
+async function verwijderInspecteur(id) { const insp=state.inspecteurs.find(x=>x.id===id); if(!insp) return; const n=state.inspecties.filter(i=>i.inspecteurId===id).length; const w=n>0?`\n\nLet op: ${n} inspectie${n!==1?'s':''} zonder inspecteur.`:''; if(!confirm(`${insp.naam} verwijderen?${w}`)) return; await dbVerwijderInspecteur(id); }
+function renderTeam() {
+  if (editInspecteurId&&!state.inspecteurs.find(x=>x.id===editInspecteurId)) editInspecteurId=null;
+  const container=document.getElementById('team-lijst');
+  container.innerHTML=state.inspecteurs.map(insp=>{
+    const emoji=insp.emoji||'👤', aantal=state.inspecties.filter(i=>i.inspecteurId===insp.id).length;
+    if (insp.id===editInspecteurId) {
+      const klDot=editKleur?`background:${editKleur}`:'background:var(--gray2)';
+      return `<div class="inspector-row" style="flex-direction:column;align-items:stretch"><div style="display:flex;align-items:center;gap:8px"><button type="button" id="edit-emoji-display-${insp.id}" onclick="toggleEditPicker(${insp.id})" style="font-size:18px;background:var(--bg);border:none;cursor:pointer;padding:4px 8px;border-radius:8px;line-height:1;box-shadow:0 0 0 1px rgba(0,0,0,.08)">${editEmoji}</button><div id="edit-kleur-indicator-${insp.id}" style="width:12px;height:12px;border-radius:50%;${klDot};flex-shrink:0;border:1px solid rgba(0,0,0,.1)"></div><input type="text" id="edit-insp-naam-${insp.id}" value="${insp.naam.replace(/"/g,'&quot;')}" style="flex:1;border:none;border-radius:8px;padding:7px 10px;font-size:15px;font-family:inherit;background:var(--bg);outline:none;box-shadow:0 0 0 1px rgba(0,0,0,.08)"><button class="btn btn-sm btn-primary" onclick="slaInspecteurOp(${insp.id})">✓</button><button class="btn btn-sm btn-gray" onclick="cancelEditInspecteur()">✕</button></div><div class="emoji-picker" id="emoji-picker-edit-${insp.id}"></div></div>`;
+    }
+    return `<div class="inspector-row"><span style="font-size:20px;line-height:1">${emoji}</span><span class="inspector-name">${insp.naam}</span><span class="inspector-count">${aantal} insp.</span><button class="btn btn-sm btn-gray" onclick="startEditInspecteur(${insp.id})" style="padding:4px 9px">✎</button><button class="btn btn-sm btn-red" onclick="verwijderInspecteur(${insp.id})">✕</button></div>`;
+  }).join('');
+  const opts=state.inspecteurs.map(i=>`<option value="${i.id}">${i.naam}</option>`).join('');
+  document.getElementById('inp-inspecteur').innerHTML='<option value="">Automatisch</option>'+opts;
+  document.getElementById('filter-inspecteur').innerHTML='<option value="">Alle inspecteurs</option>'+opts;
+  renderCartoKey();
+}
+
+// ─── CARTO KEY INSTELLING ────────────────────────────────────────────────────
+function renderCartoKey() {
+  const inp=document.getElementById('inp-carto-key'); if(!inp) return;
+  if (document.activeElement!==inp) inp.value=cartoKey();
+  let eigen=false; try { eigen=!!localStorage.getItem('cartoKey'); } catch(e) {}
+  setCartoStatus(eigen ? 'Eigen key actief op dit apparaat.' : 'Standaardkey van de app in gebruik.');
+}
+function setCartoStatus(msg) { const el=document.getElementById('carto-key-status'); if(el) el.textContent=msg; }
+function pasCartoKeyToe() { if (mapReady && baseLayer) baseLayer.setUrl(cartoTiles()); }
+function slaCartoKeyOp() {
+  const v=document.getElementById('inp-carto-key').value.trim();
+  if (!v) { alert('Vul een key in, of kies Standaard.'); return; }
+  try { localStorage.setItem('cartoKey', v); } catch(e) { alert('Opslaan mislukt — sta opslag toe in je browser (geen privé-modus).'); return; }
+  pasCartoKeyToe(); renderCartoKey();
+  setCartoStatus('✓ Opgeslagen. Ververs hard (Ctrl/Cmd+Shift+R) als je nog oude tegels ziet.');
+}
+function herstelCartoKey() {
+  try { localStorage.removeItem('cartoKey'); } catch(e) {}
+  pasCartoKeyToe(); renderCartoKey();
+}
+async function voegInspecteurToe() { const naam=document.getElementById('inp-naam').value.trim(); if(!naam){alert('Vul een naam in.');return;} const ok=await dbVoegInspecteurToe(naam,huidigEmoji,huidigKleur); if(ok){document.getElementById('inp-naam').value='';huidigEmoji='👤';huidigKleur=null;document.getElementById('emoji-display').textContent='👤';const dot=document.getElementById('kleur-indicator');if(dot)dot.style.background='var(--gray2)';} }
+
+// ─── CONDUCT SCREEN ───────────────────────────────────────────────────────────
+let currentBevindingId=null, currentBevData={}, autoSaveTimer=null, currentVastgoedType='Residentieel';
+let currentPanden=[], currentPandIndex=0;
+const INSPECTIE_TYPE_MAP = {'Intern en extern':'Volledig','Extern':'Drive-by'};
+
+function nieuwPandId() { return 'p_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+function showConductScreen(id) {
+  currentBevindingId=id;
+  const inspectie=state.inspecties.find(x=>x.id===id);
+  if (!inspectie) return;
+
+  const pand0Bev = JSON.parse(JSON.stringify(inspectie.bevindingen||{}));
+  if (!pand0Bev.inspection_date) pand0Bev.inspection_date = inspectie.datum;
+  if (inspectie.dossiernummer) pand0Bev.dossiernummer = inspectie.dossiernummer;
+  if (inspectie.flowId) pand0Bev.flow_id = inspectie.flowId;
+  if (!pand0Bev.inspection_type) pand0Bev.inspection_type = INSPECTIE_TYPE_MAP[inspectie.type] || 'Volledig';
+  if (!pand0Bev.responsible_rt_valuer_name) {
+    const insp=state.inspecteurs.find(x=>x.id===inspectie.inspecteurId);
+    if (insp) pand0Bev.responsible_rt_valuer_name = insp.naam;
+  }
+  const pand0 = { id:'p0', hoofdpand:true, adres:inspectie.adres, lat:inspectie.lat, lng:inspectie.lng, vastgoedType:inspectie.vastgoedType||'Residentieel', bevindingen:pand0Bev, fotos:JSON.parse(JSON.stringify(inspectie.fotos||[])) };
+  const extraPanden = JSON.parse(JSON.stringify(inspectie.panden||[])).map(p => ({
+    id: p.id || nieuwPandId(), hoofdpand:false, adres:p.adres||'', lat:p.lat||null, lng:p.lng||null,
+    notities:p.notities||'', vastgoedType:p.vastgoedType||'Residentieel', bevindingen:p.bevindingen||{}, fotos:p.fotos||[]
+  }));
+
+  currentPanden = [pand0, ...extraPanden];
+  currentPandIndex = 0;
+  currentBevData = currentPanden[0].bevindingen;
+  currentVastgoedType = currentPanden[0].vastgoedType;
+
+  renderConductForm(inspectie);
+  document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
+  document.getElementById('screen-conduct').classList.remove('hidden');
+  document.querySelectorAll('.tab-item').forEach((t,i)=>t.classList.toggle('active',i===1));
+}
+
+function wisselPand(idx) {
+  if (idx<0 || idx>=currentPanden.length) return;
+  currentPandIndex = idx;
+  currentBevData = currentPanden[idx].bevindingen;
+  currentVastgoedType = currentPanden[idx].vastgoedType || 'Residentieel';
+  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
+  if (inspectie) renderConductForm(inspectie);
+}
+
+function opentPandModal() {
+  document.getElementById('pand-modal-adres').value='';
+  document.getElementById('pand-modal-notities').value='';
+  document.getElementById('pand-modal-overlay').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('pand-modal-adres').focus(),60);
+}
+function sluitPandModal() { document.getElementById('pand-modal-overlay').classList.add('hidden'); }
+
+async function bevestigNieuwPand() {
+  const adres = document.getElementById('pand-modal-adres').value.trim();
+  const notities = document.getElementById('pand-modal-notities').value.trim();
+  if (!adres) { alert('Vul een adres in.'); return; }
+  let lat=null, lng=null;
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adres)}&format=json&limit=1&countrycodes=nl`,{headers:{'Accept-Language':'nl'}});
+    const data = await r.json();
+    if (data.length>0) { lat=+data[0].lat; lng=+data[0].lon; }
+  } catch(e) {}
+  const nieuw = { id:nieuwPandId(), hoofdpand:false, adres, lat, lng, notities, vastgoedType:'Residentieel', bevindingen:{}, fotos:[] };
+  nieuw.bevindingen.inspection_date = currentPanden[0].bevindingen.inspection_date;
+  nieuw.bevindingen.inspection_type = currentPanden[0].bevindingen.inspection_type;
+  nieuw.bevindingen.responsible_rt_valuer_name = currentPanden[0].bevindingen.responsible_rt_valuer_name;
+  currentPanden.push(nieuw);
+  sluitPandModal();
+  wisselPand(currentPanden.length-1);
+  await saveBevindingen('bezig');
+}
+
+function verwijderPand(idx, ev) {
+  if (ev) ev.stopPropagation();
+  if (currentPanden[idx]?.hoofdpand) { alert('Het hoofdpand kan niet verwijderd worden.'); return; }
+  if (!confirm('Dit pand en de bijbehorende gegevens en foto\'s verwijderen?')) return;
+  currentPanden.splice(idx,1);
+  if (currentPandIndex>=currentPanden.length) currentPandIndex=currentPanden.length-1;
+  currentBevData = currentPanden[currentPandIndex].bevindingen;
+  currentVastgoedType = currentPanden[currentPandIndex].vastgoedType||'Residentieel';
+  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
+  if (inspectie) renderConductForm(inspectie);
+  saveBevindingen('bezig');
+}
+
+function setPandAdres(idx, value) {
+  currentPanden[idx].adres = value;
+  const bar = document.querySelector('#conduct-content .pand-bar');
+  if (bar) bar.outerHTML = renderPandBar();
+  scheduleAutoSave();
+}
+function setPandNotitie(idx, value) { currentPanden[idx].notities = value; scheduleAutoSave(); }
+function setHoofdNotitie(value) {
+  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
+  if (inspectie) inspectie.notities = value;
+  scheduleAutoSave();
+}
+
+async function handleFotoUpload(ev, pandIdx) {
+  const files = Array.from(ev.target.files||[]);
+  if (!files.length) return;
+  const pand = currentPanden[pandIdx];
+  const grid = document.getElementById(`foto-grid-${pandIdx}`);
+  for (const file of files) {
+    let placeholder=null;
+    if (grid) { placeholder=document.createElement('div'); placeholder.className='foto-thumb uploading'; placeholder.textContent='⏳'; grid.insertBefore(placeholder, grid.lastElementChild); }
+    try {
+      const ext = (file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
+      const path = `${currentBevindingId}/${pand.id}/${Date.now()}_${Math.random().toString(36).slice(2,7)}.${ext}`;
+      const { error } = await db.storage.from('inspectie-fotos').upload(path, file, { upsert:false, contentType:file.type||'image/jpeg' });
+      if (error) throw error;
+      const { data } = db.storage.from('inspectie-fotos').getPublicUrl(path);
+      pand.fotos = pand.fotos || [];
+      pand.fotos.push({ path, url: data.publicUrl });
+    } catch(e) {
+      console.error('Foto upload mislukt:', e);
+      alert('Foto uploaden mislukt. Controleer of de storage bucket "inspectie-fotos" (public) bestaat in Supabase.');
+    }
+    if (placeholder) placeholder.remove();
+  }
+  ev.target.value = '';
+  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
+  if (inspectie) renderConductForm(inspectie);
+  scheduleAutoSave();
+}
+
+async function verwijderFoto(pandIdx, fotoIdx) {
+  const pand = currentPanden[pandIdx];
+  const foto = pand.fotos?.[fotoIdx];
+  if (!confirm('Foto verwijderen?')) return;
+  if (foto?.path) { try { await db.storage.from('inspectie-fotos').remove([foto.path]); } catch(e) {} }
+  pand.fotos.splice(fotoIdx,1);
+  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
+  if (inspectie) renderConductForm(inspectie);
+  scheduleAutoSave();
+}
+
+function berekenVoortgang() {
+  if (currentVastgoedType !== 'Residentieel') return 0;
+  let totaal=0, ingevuld=0;
+  FLOW_RESIDENTIAL.forEach(sec => {
+    if (!checkConditional(sec.conditieSectie)) return;
+    sec.velden.forEach(v => {
+      if (!checkConditional(v.conditie)) return;
+      totaal++;
+      const val = currentBevData[v.id];
+      if (val===undefined||val===null||val===''||val===false) return;
+      if (Array.isArray(val) && !val.length) return;
+      ingevuld++;
+    });
+  });
+  return totaal ? Math.round(ingevuld/totaal*100) : 0;
+}
+
+async function switchFormType(type) {
+  currentVastgoedType = type;
+  currentPanden[currentPandIndex].vastgoedType = type;
+  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
+  if (currentPandIndex === 0) {
+    await db.from('inspecties').update({ vastgoed_type: type }).eq('id', currentBevindingId);
+    if (inspectie) inspectie.vastgoedType = type;
+  }
+  if (inspectie) renderConductForm(inspectie);
+}
+
+function checkConditional(conditie) {
+  if (!conditie) return true;
+  const val = currentBevData[conditie.veld];
+  if (conditie.is !== undefined) {
+    if (typeof conditie.is === 'boolean') return !!val === conditie.is;
+    return val === conditie.is;
+  }
+  if (conditie.niet !== undefined) return val !== conditie.niet;
+  if (conditie.begintMet !== undefined) return typeof val === 'string' && val.startsWith(conditie.begintMet);
+  return true;
+}
+
+function renderFlowField(veld) {
+  const val = currentBevData[veld.id];
+  const show = checkConditional(veld.conditie);
+  const hideCls = show ? '' : ' flow-hidden';
+  const id = `flow-${veld.id}`;
+
+  if (veld.type === 'textarea') {
+    return `<div class="flow-row flow-textarea-row${hideCls}" id="row-${veld.id}">
+      <span class="flow-label flow-label-sm">${veld.label}</span>
+      <textarea id="${id}" class="flow-textarea" placeholder="…" oninput="setFlowField('${veld.id}',this.value);autoGrow(this)" onfocus="autoGrow(this)">${esc(val||'')}</textarea>
+    </div>`;
+  }
+  if (veld.type === 'scoreButtons') {
+    const optieLijst = veld.opties || BEREIK;
+    const btns = optieLijst.map(o => `<button type="button" class="flow-score-btn${val===o?' actief':''}" data-s="${esc(o)}" onclick="setScoreBtn('${veld.id}','${o.replace(/'/g,"\\'")}',this)">${esc(o)}</button>`).join('');
+    return `<div class="flow-row flow-score-row${hideCls}" id="row-${veld.id}">
+      <span class="flow-label">${veld.label}</span>
+      <div class="flow-score-btns">${btns}</div>
+    </div>`;
+  }
+  if (veld.type === 'checkbox') {
+    const checked = val === true ? 'checked' : '';
+    return `<div class="flow-row${hideCls}" id="row-${veld.id}">
+      <span class="flow-label">${veld.label}</span>
+      <label class="ios-toggle">
+        <input type="checkbox" ${checked} onchange="setFlowField('${veld.id}',this.checked)">
+        <span class="ios-toggle-track"></span>
+        <span class="ios-toggle-thumb"></span>
+      </label>
+    </div>`;
+  }
+  if (veld.type === 'checkboxGroup') {
+    const selected = Array.isArray(val) ? val : [];
+    const pills = veld.opties.map(o => {
+      const act = selected.includes(o) ? ' actief' : '';
+      return `<button type="button" class="pill-btn${act}" onclick="toggleFlowPill('${veld.id}','${o.replace(/'/g,"\\'")}',this)">${o}</button>`;
+    }).join('');
+    return `<div class="flow-row flow-pills-row${hideCls}" id="row-${veld.id}">
+      <span class="flow-label">${veld.label}</span>
+      <div class="pill-group">${pills}</div>
+    </div>`;
+  }
+  if (veld.type === 'dropdown') {
+    const optieLijst = veld.opties === 'inspecteurs'
+      ? state.inspecteurs.map(i => i.naam)
+      : (veld.opties || []);
+    const opts = optieLijst.map(o => `<option${o===val?' selected':''}>${esc(o)}</option>`).join('');
+    return `<div class="flow-row${hideCls}" id="row-${veld.id}">
+      <span class="flow-label">${veld.label}</span>
+      <div class="flow-val select-wrap">
+        <select onchange="setFlowField('${veld.id}',this.value)"><option value="">Kies…</option>${opts}</select>
+        <span class="select-chev">▾</span>
+      </div>
+    </div>`;
+  }
+  // text / integer / decimal / year / date
+  const itype = veld.type==='date' ? 'date' : 'text';
+  const inputmode = ['integer','decimal','year'].includes(veld.type) ? `inputmode="${veld.type==='decimal'?'decimal':'numeric'}"` : '';
+  return `<div class="flow-row${hideCls}" id="row-${veld.id}">
+    <span class="flow-label">${veld.label}</span>
+    <div class="flow-val flow-input-wrap"><input type="${itype}" id="${id}" value="${esc(val||'')}" ${inputmode} oninput="setFlowField('${veld.id}',this.value)"></div>
+  </div>`;
+}
+
+function renderSectieAccordion(sectie) {
+  // Section-level conditional (e.g. binnenzijde only when Volledig)
+  const secShow = checkConditional(sectie.conditieSectie);
+  const secHide = secShow ? '' : ' flow-hidden';
+  const veldHtml = sectie.velden.map(renderFlowField).join('');
+  // Count filled fields for badge
+  const filled = sectie.velden.filter(v => {
+    const val = currentBevData[v.id];
+    if (val === undefined || val === null || val === '' || val === false) return false;
+    if (Array.isArray(val) && val.length === 0) return false;
+    return true;
+  }).length;
+  const badge = filled > 0 ? `<span class="acc-badge">${filled}/${sectie.velden.length}</span>` : '';
+  return `<div class="acc-section${secHide}" id="accsec-${sectie.id}">
+    <button type="button" class="acc-header" onclick="toggleAcc(this)">
+      <span class="acc-icon">${sectie.icon}</span>
+      <span class="acc-title">${sectie.titel}</span>
+      ${badge}
+      <span class="acc-chevron">▼</span>
+    </button>
+    <div class="acc-body">${veldHtml}</div>
+  </div>`;
+}
+
+function renderPandBar() {
+  const chips = currentPanden.map((p, idx) => {
+    const label = p.hoofdpand ? ('🏠 ' + (p.adres || 'Hoofdpand').split(',')[0]) : (p.adres ? p.adres.split(',')[0] : `Pand ${idx+1}`);
+    const del = !p.hoofdpand ? `<span class="pand-chip-del" onclick="verwijderPand(${idx},event)" title="Pand verwijderen">✕</span>` : '';
+    return `<button type="button" class="pand-chip${idx===currentPandIndex?' actief':''}" onclick="wisselPand(${idx})">${esc(label)}${del}</button>`;
+  }).join('');
+  return `<div class="pand-bar">${chips}<button type="button" class="pand-chip-add" onclick="opentPandModal()" title="Nog een pand toevoegen">+</button></div>`;
+}
+
+function renderFotoSectie(pand, pandIdx) {
+  const thumbs = (pand.fotos||[]).map((f, fi) => `<div class="foto-thumb"><img src="${f.url}" loading="lazy" alt="Foto"><button type="button" class="foto-del" onclick="verwijderFoto(${pandIdx},${fi})" title="Verwijderen">✕</button></div>`).join('');
+  return `<div class="acc-section acc-section-fotos">
+    <div class="acc-header open" style="cursor:default">
+      <span class="acc-icon">📷</span>
+      <span class="acc-title">Foto's</span>
+      ${(pand.fotos&&pand.fotos.length)?`<span class="acc-badge">${pand.fotos.length}</span>`:''}
+    </div>
+    <div class="acc-body open">
+      <div class="foto-grid" id="foto-grid-${pandIdx}">
+        ${thumbs}
+        <label class="foto-add-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          Foto
+          <input type="file" accept="image/*" capture="environment" multiple style="display:none" onchange="handleFotoUpload(event,${pandIdx})">
+        </label>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderConductForm(inspectie) {
+  const insp=state.inspecteurs.find(x=>x.id===inspectie.inspecteurId);
+  const status=inspectie.rapportStatus||'gepland';
+  const isRes = currentVastgoedType === 'Residentieel';
+  const pand = currentPanden[currentPandIndex];
+  const meerdereePanden = currentPanden.length > 1;
+  const voortgang = berekenVoortgang();
+
+  let html = '';
+  if (meerdereePanden) html += renderPandBar();
+
+  html += `<div class="prop-header-card">
+    <div class="prop-header-address">${esc(pand.adres || inspectie.adres)}</div>
+    <div class="prop-header-meta">${formatDatumLang(inspectie.datum)} · ${inspectie.tijd} · ${inspectie.type}</div>
+    <div class="prop-header-meta" style="margin-top:2px">${insp?(insp.emoji+' '+insp.naam):'—'}</div>
+    ${status==='afgerond'?'<div style="margin-top:8px"><span class="badge badge-green">✓ Afgerond</span></div>':''}
+  </div>`;
+
+  if (!pand.hoofdpand) {
+    html += `<div class="pand-active-banner">📍 Je bent nu binnen bij <span style="text-decoration:underline dotted">${esc(pand.adres||'dit pand')}</span></div>
+    <div class="team-section pand-adres-row" style="margin:10px 16px 0">
+      <div class="team-card">
+        <div class="form-row-ios"><label>Adres</label><input type="text" value="${esc(pand.adres||'')}" oninput="setPandAdres(${currentPandIndex},this.value)"></div>
+      </div>
+    </div>`;
+  } else if (meerdereePanden) {
+    html += `<div class="pand-active-banner">📍 Je bent nu binnen bij het hoofdpand</div>`;
+  }
+
+  if (isRes) {
+    html += `<div class="progress-wrap"><div class="progress-bar" style="width:${voortgang}%"></div></div>`;
+  }
+
+  html += `<div class="fts-wrap">
+    <button class="fts-btn${isRes?' actief':''}" onclick="switchFormType('Residentieel')">Residentieel</button>
+    <button class="fts-btn${!isRes?' actief':''}" onclick="switchFormType('Commercieel')">Commercieel</button>
+  </div>`;
+
+  html += `<div class="pand-quicknote">
+    <label>Snelle opmerkingen</label>
+    <textarea placeholder="Wat valt je meteen op bij binnenkomst…" oninput="${pand.hoofdpand ? "setHoofdNotitie(this.value)" : `setPandNotitie(${currentPandIndex},this.value)`}">${esc(pand.hoofdpand ? (inspectie.notities||'') : (pand.notities||''))}</textarea>
+  </div>`;
+
+  html += renderFotoSectie(pand, currentPandIndex);
+
+  if (isRes) {
+    FLOW_RESIDENTIAL.forEach(sectie => { html += renderSectieAccordion(sectie); });
+  } else {
+    html += `<div class="acc-section"><div style="padding:32px 20px;text-align:center;color:var(--gray);font-size:15px;background:white;border-radius:12px;margin-top:12px">
+      <div style="font-size:32px;margin-bottom:10px">🏢</div>
+      <div style="font-weight:600;margin-bottom:4px">Commercieel formulier</div>
+      <div style="font-size:13px">Wordt binnenkort toegevoegd</div>
+    </div></div>`;
+  }
+
+  html += `<div class="add-btn-wrap" style="display:flex;gap:8px;margin-top:24px">
+    <button class="btn btn-gray" style="flex:1" onclick="saveBevindingen('bezig').then(()=>showSaveOk())">💾 Opslaan</button>
+    <button class="btn btn-primary" style="flex:1" onclick="afrondenEnRapport()">📄 Rapport genereren</button>
+  </div>`;
+
+  document.getElementById('conduct-content').innerHTML = html;
+  // Open first (echte) sectie by default, Foto's blijft altijd open maar telt niet mee
+  const firstHdr = document.querySelector('#conduct-content .acc-section:not(.acc-section-fotos) .acc-header');
+  if (firstHdr) { firstHdr.classList.add('open'); firstHdr.nextElementSibling.classList.add('open'); }
+}
+
+function toggleAcc(hdr) {
+  hdr.classList.toggle('open');
+  hdr.nextElementSibling.classList.toggle('open');
+}
+
+function setFlowField(fieldId, value) {
+  currentBevData[fieldId] = value;
+  // Re-check all conditionals that depend on this field
+  FLOW_RESIDENTIAL.forEach(sec => {
+    // Section-level conditional
+    if (sec.conditieSectie && sec.conditieSectie.veld === fieldId) {
+      const el = document.getElementById('accsec-' + sec.id);
+      if (el) el.classList.toggle('flow-hidden', !checkConditional(sec.conditieSectie));
+    }
+    // Field-level conditionals
+    sec.velden.forEach(veld => {
+      if (veld.conditie && veld.conditie.veld === fieldId) {
+        const row = document.getElementById('row-' + veld.id);
+        if (row) row.classList.toggle('flow-hidden', !checkConditional(veld.conditie));
+      }
+    });
+  });
+  scheduleAutoSave();
+}
+
+function toggleFlowPill(fieldId, optie, btn) {
+  let arr = Array.isArray(currentBevData[fieldId]) ? [...currentBevData[fieldId]] : [];
+  if (arr.includes(optie)) { arr = arr.filter(x=>x!==optie); btn.classList.remove('actief'); }
+  else { arr.push(optie); btn.classList.add('actief'); }
+  currentBevData[fieldId] = arr;
+  scheduleAutoSave();
+}
+
+function setScoreBtn(fieldId, val, btn) {
+  setFlowField(fieldId, val);
+  btn.closest('.flow-score-btns').querySelectorAll('.flow-score-btn').forEach(b => b.classList.toggle('actief', b.dataset.s === val));
+}
+
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.max(32, el.scrollHeight) + 'px';
+}
+
+function showSaveOk() {
+  const s=document.getElementById('conduct-save-status');
+  if(s){s.textContent='✓ Opgeslagen';setTimeout(()=>{s.textContent='';},2000);}
+}
+
+function scheduleAutoSave() {
+  clearTimeout(autoSaveTimer);
+  const s=document.getElementById('conduct-save-status');
+  if(s) s.textContent='● Opslaan…';
+  autoSaveTimer=setTimeout(async()=>{
+    await saveBevindingen('bezig');
+    if(s){s.textContent='✓ Opgeslagen';setTimeout(()=>{s.textContent='';},2000);}
+  },1500);
+}
+
+async function saveBevindingen(rapportStatus='bezig') {
+  if (!currentBevindingId) return;
+  // Collect any DOM inputs not yet reflected in currentBevData
+  FLOW_RESIDENTIAL.forEach(sec => {
+    sec.velden.forEach(veld => {
+      const el = document.getElementById('flow-' + veld.id);
+      if (!el) return;
+      if (veld.type === 'checkbox') return; // handled via onchange
+      if (veld.type === 'checkboxGroup') return; // handled via toggleFlowPill
+      if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+        if (el.value !== '') currentBevData[veld.id] = el.value;
+      }
+    });
+  });
+  const inspectie = state.inspecties.find(x=>x.id===currentBevindingId);
+  const payload = {
+    bevindingen: currentPanden[0].bevindingen,
+    fotos: currentPanden[0].fotos || [],
+    panden: currentPanden.slice(1),
+    rapport_status: rapportStatus,
+    dossiernummer: currentPanden[0].bevindingen.dossiernummer || null,
+    flow_id: currentPanden[0].bevindingen.flow_id || null,
+    vastgoed_type: currentPanden[0].vastgoedType || 'Residentieel',
+  };
+  if (inspectie && inspectie.notities !== undefined) payload.notities = inspectie.notities || '';
+  const { error }=await db.from('inspecties').update(payload).eq('id',currentBevindingId);
+  if(error) console.error('Save fout:',error);
+}
+
+async function afrondenEnRapport() {
+  await saveBevindingen('afgerond');
+  await laadData();
+  const updated = state.inspecties.find(x=>x.id===currentBevindingId);
+  if (updated) genereerRapport(updated);
+  else genereerRapport({ id:currentBevindingId, bevindingen:currentBevData, adres:'', datum:'', tijd:'', type:'', rapportStatus:'afgerond' });
+}
+
+// ─── RAPPORT GENEREREN ───────────────────────────────────────────────────────
+function generateObjectomschrijving(bev) {
+  const parts = [];
+  const isMGW = (bev.multi_family_dwellings||'').startsWith('MGW');
+  const typeW = isMGW ? bev.type_residential_appartment : bev.type_residential_house;
+  if (typeW) {
+    let zin = `Het betreft een ${typeW.toLowerCase()}`;
+    if (bev.construction_year_completion) zin += `, gebouwd in ${bev.construction_year_completion}`;
+    if (bev.last_renovation_year) zin += `, gerenoveerd in ${bev.last_renovation_year}`;
+    parts.push(zin + '.');
+  }
+  const details = [];
+  if (bev.number_of_floors) details.push(`${bev.number_of_floors} bouwla${bev.number_of_floors==1?'ag':'gen'}`);
+  if (bev.number_of_rooms) details.push(`${bev.number_of_rooms} kamer${bev.number_of_rooms==1?'':'s'}`);
+  if (details.length) parts.push(`Het object telt ${details.join(' en ')}.`);
+  if (bev.selfcontaining_units > 1) parts.push(`Er zijn ${bev.selfcontaining_units} zelfstandige eenheden.`);
+  if (bev.outdoor_spaces && bev.outdoor_spaces.length && !bev.outdoor_spaces.includes('Geen')) parts.push(`Het object beschikt over ${bev.outdoor_spaces.join(', ').toLowerCase()}.`);
+  if (bev.storage_units_residential && bev.storage_type) { const sqm = bev.storage_sqm ? ` van ${bev.storage_sqm} m²` : ''; parts.push(`Er is een ${bev.storage_type.toLowerCase()}${sqm} aanwezig.`); }
+  if (bev.asset_description) parts.push(bev.asset_description);
+  return parts.join(' ') || null;
+}
+
+function generateTechnischeOmschrijving(bev) {
+  const parts = [];
+  if (bev.foundation) parts.push(`De fundering bestaat uit ${bev.foundation.toLowerCase()}.`);
+  if (bev.construction && bev.construction.length) parts.push(`De draagconstructie is opgebouwd uit ${bev.construction.join(', ').toLowerCase()}.`);
+  if (bev.facades && bev.facades.length) parts.push(`De gevels zijn bekleed met ${bev.facades.join(', ').toLowerCase()}.`);
+  const kozijn = [bev.frames ? `${bev.frames.toLowerCase()} kozijnen` : '', bev.glazing ? `${bev.glazing}-beglazing` : ''].filter(Boolean).join(' met ');
+  if (kozijn) parts.push(`De ramen zijn voorzien van ${kozijn}.`);
+  if (bev.roof_shape || bev.roofing) { const dak = [bev.roof_shape?.toLowerCase(), bev.roofing ? `met ${bev.roofing.toLowerCase()} dakbedekking` : ''].filter(Boolean).join(' '); if (dak) parts.push(`Het dak betreft een ${dak}.`); }
+  if (bev.verwarming && bev.verwarming.length && !bev.verwarming.includes('Geen')) parts.push(`De verwarming bestaat uit ${bev.verwarming.join(', ').toLowerCase()}.`);
+  if (bev.ventilation && bev.ventilation !== 'Geen / Onbekend') parts.push(`Ventilatie: ${bev.ventilation.toLowerCase()}.`);
+  if (bev.energy_label) parts.push(`Energielabel: ${bev.energy_label}.`);
+  return parts.join(' ') || null;
+}
+
+function genereerRapport(inspectieOrId) {
+  const inspectie = typeof inspectieOrId === 'object' ? inspectieOrId : state.inspecties.find(x=>x.id===inspectieOrId);
+  if (!inspectie) { alert('Inspectie niet gevonden.'); return; }
+  const insp = state.inspecteurs.find(x=>x.id===inspectie.inspecteurId);
+  const bev  = inspectie.bevindingen || {};
+  const rapportDatum = formatDatumLang(bev.inspection_date || inspectie.datum);
+
+  function ht(t) { return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>'); }
+  function vd(val) {
+    if (val===undefined||val===null||val==='') return '—';
+    if (val===true) return 'Ja'; if (val===false) return 'Nee';
+    if (Array.isArray(val)) return val.length ? ht(val.join(', ')) : '—';
+    return ht(String(val));
+  }
+  function kwalBadge(s) {
+    if (!s) return '—';
+    const c = { 'Slecht':['#FBE9EA','#CE181E'],'Matig':['#FCF0E6','#EF6B00'],'Voldoende':['#FFF8D6','#8a7000'],'Goed':['#EBF5EE','#237A45'],'Uitstekend':['#E6F1FC','#065A9E'],'Gedateerd':['#FBE9EA','#CE181E'],'Basis':['#FCF0E6','#EF6B00'],'Standaard':['#FFF8D6','#8a7000'] };
+    const [bg,fg] = c[s] || ['#F5F2F0','#79828C'];
+    return `<span style="display:inline-block;padding:2pt 8pt;border-radius:99pt;font-size:8pt;font-weight:700;background:${bg};color:${fg};-webkit-print-color-adjust:exact;print-color-adjust:exact">${ht(s)}</span>`;
+  }
+  const SCORE_SET = new Set(['Slecht','Matig','Voldoende','Goed','Uitstekend','Gedateerd','Basis','Standaard']);
+
+  // Build detail sections
+  const SKIP_FIELDS = new Set(['dossiernummer','flow_id','inspection_date','responsible_rt_valuer_name','client_name','inspection_type','asset_description','final_assessment_location','final_assessment_interior','final_assessment_exterior','final_assessment_explanation','remarks_final']);
+  function bouwDetailHtml(bronBev) {
+    let html = '';
+    FLOW_RESIDENTIAL.forEach(sec => {
+      if (sec.conditieSectie) { const v=bronBev[sec.conditieSectie.veld]; if (sec.conditieSectie.is && v!==sec.conditieSectie.is) return; }
+      const filled = sec.velden.filter(veld => {
+        if (SKIP_FIELDS.has(veld.id)) return false;
+        const val = bronBev[veld.id];
+        if (val===undefined||val===null||val===''||val===false) return false;
+        if (Array.isArray(val)&&!val.length) return false;
+        if (veld.conditie) {
+          const dv=bronBev[veld.conditie.veld];
+          if (veld.conditie.is!==undefined) { if(typeof veld.conditie.is==='boolean'){if(!!dv!==veld.conditie.is)return false;}else if(dv!==veld.conditie.is)return false; }
+          else if(veld.conditie.niet!==undefined&&dv===veld.conditie.niet)return false;
+          else if(veld.conditie.begintMet&&!(typeof dv==='string'&&dv.startsWith(veld.conditie.begintMet)))return false;
+        }
+        return true;
+      });
+      if (!filled.length) return;
+      html += `<section><h2>${sec.titel}</h2><table class="dt"><tbody>`;
+      filled.forEach(veld => {
+        const val = bronBev[veld.id];
+        const isScore = typeof val === 'string' && SCORE_SET.has(val);
+        const display = veld.type==='textarea'
+          ? `<div style="white-space:pre-wrap;line-height:1.6">${ht(val)}</div>`
+          : isScore ? kwalBadge(val) : vd(val);
+        html += `<tr><td class="dl">${ht(veld.label)}</td><td class="dv">${display}</td></tr>`;
+      });
+      html += `</tbody></table></section>`;
+    });
+    return html;
+  }
+  function fotoGalleryHtml(fotos) {
+    if (!fotos || !fotos.length) return '';
+    return `<h2>Foto's</h2><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6pt;margin-bottom:12pt">${fotos.map(f=>`<img src="${ht(f.url)}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6pt;border:0.5pt solid #D7DED7;-webkit-print-color-adjust:exact;print-color-adjust:exact">`).join('')}</div>`;
+  }
+  const detailHtml = bouwDetailHtml(bev);
+
+  const eq_loc = bev.final_assessment_location, eq_int = bev.final_assessment_interior, eq_ext = bev.final_assessment_exterior, eq_toe = bev.final_assessment_explanation;
+  const typeW = (bev.multi_family_dwellings||'').startsWith('MGW') ? bev.type_residential_appartment : bev.type_residential_house;
+  const hasMap = !!(inspectie.lat && inspectie.lng);
+
+  // ── Extra panden (naast het hoofdpand) ──
+  const extraPanden = inspectie.panden || [];
+  const extraMapDefs = [];
+  let extraPandenHtml = '';
+  extraPanden.forEach((p, idx) => {
+    const pDetail = bouwDetailHtml(p.bevindingen || {});
+    const pHasMap = !!(p.lat && p.lng);
+    const idClose = `rp-map-close-x${idx}`, idWide = `rp-map-wide-x${idx}`;
+    if (pHasMap) extraMapDefs.push({ idClose, idWide, lat:p.lat, lng:p.lng });
+    extraPandenHtml += `
+    <hr class="rh-rule" style="margin-top:26pt">
+    <div class="rh-label">Pand ${idx+2}</div>
+    <div class="rh-addr" style="font-size:15pt;font-weight:700;margin-bottom:10pt">${ht(p.adres||'—')}</div>
+    ${p.notities?`<div class="note-block">${ht(p.notities)}</div>`:''}
+    ${pHasMap?`<div class="rp-maps"><div id="${idClose}" class="rp-map"></div><div id="${idWide}" class="rp-map"></div></div><div class="rp-mapattr">© OpenStreetMap-bijdragers, © CARTO</div>`:''}
+    ${fotoGalleryHtml(p.fotos)}
+    ${pDetail}`;
+  });
+
+  const html = `<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><title>Inspectierapport – ${ht(inspectie.adres)}</title>
+${hasMap ? '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">' : ''}
+<style>
+@page{size:A4;margin:18mm 20mm 20mm;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;font-size:10pt;color:#25273A;background:white;line-height:1.5;-webkit-font-smoothing:antialiased;}
+.np{background:#25273A;padding:9px 18px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:99;}
+@media print{.np{display:none!important;}.rp-maps{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+.wrap{max-width:720px;margin:0 auto;padding:20px 24px;}
+
+/* Header */
+.rh-label{font-size:8pt;font-weight:500;color:#79828C;text-transform:uppercase;letter-spacing:0.5pt;margin-bottom:6pt;}
+.rh-title{font-size:26pt;font-weight:700;letter-spacing:-0.8pt;color:#25273A;line-height:1.1;margin-bottom:4pt;}
+.rh-addr{font-size:13pt;color:#25273A;margin-bottom:2pt;}
+.rh-date{font-size:10pt;color:#79828C;}
+.rh-rule{border:none;border-top:1pt solid #D7DED7;margin:14pt 0 16pt;}
+
+/* Fact grid */
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:8pt;margin-bottom:14pt;}
+.fb{padding:10pt 12pt;border:0.5pt solid #D7DED7;border-radius:6pt;}
+.fl{font-size:7pt;color:#79828C;text-transform:uppercase;letter-spacing:0.5pt;margin-bottom:3pt;font-weight:500;}
+.fv{font-size:10.5pt;font-weight:600;color:#25273A;}
+.fs{font-size:8pt;color:#79828C;margin-top:2pt;}
+
+/* Map */
+.rp-maps{display:flex;gap:8pt;margin-bottom:3pt;break-inside:avoid;}
+.rp-mapattr{font-size:6.5pt;color:#86868b;text-align:right;margin-bottom:13pt;}
+.rp-map{flex:1;border-radius:8pt;overflow:hidden;border:0.5pt solid #D7DED7;}
+#rp-map-close{height:160pt;}
+#rp-map-wide{height:160pt;}
+
+/* Section headers */
+h2{font-size:11.5pt;font-weight:700;color:#25273A;letter-spacing:-0.2pt;margin:18pt 0 8pt;padding-bottom:5pt;border-bottom:0.5pt solid #D7DED7;}
+.note-block{background:#F5F2F0;border-radius:8pt;padding:10pt 14pt;font-size:9.5pt;line-height:1.7;color:#25273A;margin-bottom:10pt;}
+
+/* Score bar */
+.eq-grid{display:flex;gap:8pt;margin-bottom:10pt;flex-wrap:wrap;}
+.eq-cell{flex:1;min-width:100pt;padding:9pt 12pt;border:0.5pt solid #D7DED7;border-radius:6pt;}
+.eq-lbl{font-size:7pt;color:#79828C;text-transform:uppercase;letter-spacing:0.4pt;margin-bottom:6pt;}
+
+/* Detail table */
+section{margin-bottom:4pt;}
+.dt{width:100%;border-collapse:collapse;margin-bottom:8pt;}
+.dt tr{border-bottom:0.5pt solid #f0f0f0;}
+.dt tr:last-child{border-bottom:none;}
+.dl{padding:5pt 10pt 5pt 0;font-size:8.5pt;color:#79828C;width:44%;vertical-align:top;}
+.dv{padding:5pt 0;font-size:9pt;color:#25273A;font-weight:500;vertical-align:top;}
+
+/* Footer */
+.foot{margin-top:20pt;padding-top:8pt;border-top:0.5pt solid #D7DED7;display:flex;justify-content:space-between;font-size:7.5pt;color:#79828C;}
+</style></head><body>
+
+<div class="np">
+  <span style="color:white;font-size:13px;flex:1">${ht(inspectie.adres)}</span>
+  <button onclick="window.print()" style="background:#FEDF00;color:#25273A;border:none;padding:7px 18px;border-radius:7px;font-weight:700;cursor:pointer;font-size:13px">Afdrukken / PDF</button>
+  <button onclick="window.close()" style="background:rgba(255,255,255,.14);border:none;padding:7px 12px;border-radius:7px;color:white;cursor:pointer;font-size:13px">✕</button>
+</div>
+
+<div class="wrap">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16pt;margin-bottom:12pt">
+    <div>
+      <div class="rh-label">Team Valuation</div>
+      <div class="rh-title">Inspectierapport</div>
+      <div class="rh-addr">${ht(inspectie.adres)}</div>
+      <div class="rh-date">${rapportDatum}</div>
+    </div>
+    <svg width="56" height="56" viewBox="0 0 500 500.003" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;-webkit-print-color-adjust:exact;print-color-adjust:exact"><rect fill="#FFE850" width="500" height="500.003"/><path fill="#CE171E" d="M72.884,468.165c-25.574,0-42.914-13.098-42.914-37.422v-0.936h14.038v0.621c0,15.904,11.536,25.268,28.998,25.268c9.356,0,27.132-4.057,27.132-19.031c0-28.997-66.737-8.416-66.737-49.893c0-20.896,19.463-30.252,38.797-30.252c22.765,0,38.232,13.094,38.232,34.305v0.936H96.399v-0.936c0-13.723-9.67-21.833-25.267-21.833c-10.915,0-23.701,4.678-23.701,17.158c0,27.132,66.737,8.102,66.737,49.894C114.168,458.183,93.461,468.165,72.884,468.165 M210.424,465.048c-1.244-3.119-2.13-13.723-2.13-18.708v-57.388c0-22.765-13.974-32.432-38.304-32.432c-22.45,0-42.099,9.981-42.099,34.619v0.936h14.038v-0.936c0-15.911,11.851-22.14,26.511-22.14c17.461,0,25.566,6.229,25.566,20.267c0,10.91-5.296,12.161-15.281,13.408l-5.296,0.629c-24.638,2.803-49.904,5.611-49.904,33.673c0,19.337,13.102,31.188,34.937,31.188c19.02,0,31.178-8.416,36.481-19.96c0,0,0,11.229,1.558,16.843H210.424z M194.006,424.193c0,8.108-2.802,15.596-8.105,21.21c-6.547,6.544-15.91,10.289-26.51,10.289c-10.286,0-21.829-5.614-21.829-19.023c0-16.218,17.462-19.956,36.174-22.146l9.979-1.244c2.815-0.307,8.112-1.25,10.292-3.116V424.193z M300.97,359.636h-1.244h-13.767l-28.647,89.323l-28.954-89.323h-16.261l37.424,105.409h15.282L300.97,359.636z M324.835,331.893c0-5.572-4.582-9.828-9.82-9.828c-5.24,0-9.821,4.256-9.821,9.5c0,5.568,4.581,9.82,9.821,9.82c5.238,0,9.82-4.252,9.82-9.82V331.893z M322.497,465.045V359.636h-0.936h-13.724v105.409H322.497z M351.495,465.045V319.717h-0.93h-13.723v145.328H351.495z M380.2,465.045V319.717h-0.937H365.54v145.328H380.2z M431.52,468.165c20.592,0,41.291-9.982,41.291-32.121c0-41.792-67.044-22.762-67.044-49.894c0-12.48,12.779-17.158,24.002-17.158c15.596,0,25.266,8.109,25.266,21.833v0.936h14.031v-0.936c0-21.21-15.468-34.305-38.54-34.305c-19.341,0-38.797,9.356-38.797,30.252c0,41.477,67.044,20.896,67.044,49.893c0,14.975-18.083,19.031-27.432,19.031c-17.162,0-29.012-9.363-29.012-25.268v-0.621h-14.038v0.936C388.291,455.067,405.638,468.165,431.52,468.165"/></svg>
+  </div>
+  <hr class="rh-rule">
+
+  <div class="fg">
+    <div class="fb"><div class="fl">Taxateur</div><div class="fv">${ht(bev.responsible_rt_valuer_name||insp?.naam||'—')}</div><div class="fs">${ht(bev.inspection_type||inspectie.type||'')}</div></div>
+    <div class="fb"><div class="fl">Opdrachtgever</div><div class="fv">${ht(bev.client_name||'—')}</div>${bev.dossiernummer?`<div class="fs">Dossier: ${ht(bev.dossiernummer)}</div>`:''}</div>
+    <div class="fb"><div class="fl">Type object</div><div class="fv">${ht(typeW||bev.multi_family_dwellings||'—')}</div>${bev.construction_year_completion?`<div class="fs">Bouwjaar ${bev.construction_year_completion}</div>`:''}</div>
+    <div class="fb"><div class="fl">Locatie</div><div class="fv">${ht(inspectie.adres.split(',').slice(-1)[0]?.trim()||'—')}</div>${bev.area_type?`<div class="fs">${ht(bev.area_type)}</div>`:''}</div>
+  </div>
+
+  ${hasMap ? `<div class="rp-maps"><div id="rp-map-close" class="rp-map"></div><div id="rp-map-wide" class="rp-map"></div></div><div class="rp-mapattr">© OpenStreetMap-bijdragers, © CARTO</div>` : ''}
+
+  ${fotoGalleryHtml(inspectie.fotos)}
+
+  ${(eq_loc||eq_int||eq_ext)?`
+  <h2>Eindkwalificatie</h2>
+  <div class="eq-grid">
+    ${eq_loc?`<div class="eq-cell"><div class="eq-lbl">Locatie</div>${kwalBadge(eq_loc)}</div>`:''}
+    ${eq_int?`<div class="eq-cell"><div class="eq-lbl">Interieur</div>${kwalBadge(eq_int)}</div>`:''}
+    ${eq_ext?`<div class="eq-cell"><div class="eq-lbl">Exterieur</div>${kwalBadge(eq_ext)}</div>`:''}
+  </div>
+  ${eq_toe?`<div class="note-block">${ht(eq_toe)}</div>`:''}`:''}
+
+  ${detailHtml?`<h2>Bevindingen</h2>${detailHtml}`:''}
+
+  ${extraPandenHtml}
+
+  <div class="foot">
+    <span>Savills Nederland – Team Valuation${extraPanden.length?` · ${extraPanden.length+1} panden geïnspecteerd`:''}</span>
+    <span>${bev.flow_id?'FLOW ID: '+ht(bev.flow_id):''}</span>
+  </div>
+</div>
+${(hasMap || extraMapDefs.length) ? `<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
+<script>
+  window.addEventListener('load', function() {
+    var tiles='${cartoTiles()}';
+    var opts={ zoomControl:false, scrollWheelZoom:false, dragging:false, keyboard:false, doubleClickZoom:false, touchZoom:false, attributionControl:false };
+    var marker={ radius:7, fillColor:'#097CE8', color:'white', weight:2.5, fillOpacity:1 };
+    function tekenKaartPaar(idClose, idWide, lat, lng) {
+      var m1=L.map(idClose,opts); L.tileLayer(tiles,{maxZoom:20,subdomains:'abcd'}).addTo(m1); m1.setView([lat,lng],16); L.circleMarker([lat,lng],marker).addTo(m1);
+      var m2=L.map(idWide,opts); L.tileLayer(tiles,{maxZoom:20,subdomains:'abcd'}).addTo(m2); m2.setView([lat,lng],9); L.circleMarker([lat,lng],marker).addTo(m2);
+    }
+    ${hasMap ? `tekenKaartPaar('rp-map-close','rp-map-wide',${inspectie.lat},${inspectie.lng});` : ''}
+    ${extraMapDefs.map(m => `tekenKaartPaar('${m.idClose}','${m.idWide}',${m.lat},${m.lng});`).join('\n    ')}
+  });
+<\/script>` : ''}
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=860,height=800');
+  if (!win) { alert('Sta pop-ups toe voor deze pagina om het rapport te openen.'); return; }
+  win.document.write(html);
+  win.document.close();
+}
+
+// ─── EXCEL EXPORT ────────────────────────────────────────────────────────────
+function bouwInspectieSheet(insp) {
+  const bev  = insp.bevindingen || {};
+  const taxateur = (state.inspecteurs.find(x=>x.id===insp.inspecteurId)||{}).naam || '—';
+  const panden = (insp.panden && insp.panden.length) ? insp.panden : null;
+
+  function veldWaarde(veld, bron) {
+    const v = bron[veld.id];
+    if (v === undefined || v === null || v === '') return '';
+    if (veld.type === 'checkbox')      return v ? 'Ja' : 'Nee';
+    if (veld.type === 'checkboxGroup') return Array.isArray(v) ? v.join(', ') : String(v);
+    return String(v);
+  }
+
+  const rows = [];
+  // ── Algemene info ──
+  rows.push(['Veld', 'Waarde']);
+  rows.push(['Adres',    insp.adres   || '']);
+  rows.push(['Datum',    insp.datum   || '']);
+  rows.push(['Taxateur', taxateur]);
+  rows.push(['Status',   insp.rapportStatus || 'gepland']);
+  rows.push(['Vastgoedtype', insp.vastgoedType || '']);
+  rows.push(['Dossiernummer', insp.dossiernummer || '']);
+  rows.push(['FLOW ID', insp.flowId || '']);
+  rows.push(['Opmerkingen', insp.notities || '']);
+  if (panden) rows.push(['Aantal panden', String(panden.length)]);
+
+  function schrijfBevindingen(bron) {
+    FLOW_RESIDENTIAL.forEach(sectie => {
+      const secRijen = [];
+      sectie.velden.forEach(veld => {
+        const waarde = veldWaarde(veld, bron);
+        if (waarde === '') return; // sla lege velden over
+        secRijen.push([veld.label, waarde]);
+      });
+      if (secRijen.length > 0) {
+        rows.push(['']); // lege scheidingsregel
+        rows.push([sectie.icon + ' ' + sectie.titel, '']);
+        secRijen.forEach(r => rows.push(r));
+      }
+    });
+  }
+
+  if (panden) {
+    panden.forEach((pand, idx) => {
+      rows.push(['']);
+      rows.push([`━━ Pand ${idx+1}: ${pand.adres||'—'} ━━`, '']);
+      if (pand.notities) rows.push(['Opmerkingen (pand)', pand.notities]);
+      if (pand.fotos && pand.fotos.length) rows.push(['Foto\'s', pand.fotos.map(f=>f.url).join(' | ')]);
+      schrijfBevindingen(pand.bevindingen || {});
+    });
+  } else {
+    schrijfBevindingen(bev);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  // Opmaak: kolombreedtes
+  ws['!cols'] = [{ wch: 38 }, { wch: 52 }];
+
+  // Vetgedrukt: header-rij en sectietitels
+  rows.forEach((r, ri) => {
+    const isSectionTitle = ri > 0 && r[1] === '' && r[0] && r[0] !== '';
+    const isHeader = ri === 0;
+    if (isHeader || isSectionTitle) {
+      ['A','B'].forEach(col => {
+        const addr = col + (ri + 1);
+        if (ws[addr]) ws[addr].s = { font: { bold: true, color: isSectionTitle ? undefined : { rgb:'FFFFFF' } }, fill: isSectionTitle ? { fgColor:{ rgb:'F5F2F0' } } : { fgColor:{ rgb:'25273A' } } };
+      });
+    }
+  });
+
+  return ws;
+}
+
+function exportInspectieExcel(id) {
+  const insp = state.inspecties.find(i=>i.id===id);
+  if (!insp) return;
+  const ws = bouwInspectieSheet(insp);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Inspectie');
+  const adresSlug = (insp.adres||'inspectie').replace(/[^a-zA-Z0-9]/g,'_').slice(0,30);
+  XLSX.writeFile(wb, `Inspectie_${adresSlug}.xlsx`);
+}
+
+// ─── TABEL ALLE INSPECTIES ───────────────────────────────────────────────────
+function sluitInspectiesTabel() {
+  document.getElementById('alle-insp-overlay').classList.add('hidden');
+}
+
+function toonInspectiesTabel() {
+  const sorted = [...state.inspecties].sort((a,b)=>a.datum.localeCompare(b.datum));
+  function esc(t) { return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function sbadge(s) {
+    const m={afgerond:['#EBF5EE','#237A45','✓ Afgerond'],bezig:['#FCF0E6','#EF6B00','⏳ Bezig'],gepland:['#F5F2F0','#79828C','Gepland']};
+    const [bg,fg,lbl]=m[s]||m.gepland;
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap;background:${bg};color:${fg};font-family:'Barlow',sans-serif">${lbl}</span>`;
+  }
+  const xlsBtn = (id) => `<button onclick="exportInspectieExcel(${id})" class="act-btn" title="Download als Excel" style="padding:5px 9px;background:#EBF5EE;color:#237A45;font-size:11px;font-weight:700;letter-spacing:0.3px;border:0.5px solid #C7E5CF"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px;margin-right:3px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>XLS</button>`;
+
+  const tbody = sorted.map(i => {
+    const insp = state.inspecteurs.find(x=>x.id===i.inspecteurId);
+    const isAfgerond = i.rapportStatus==='afgerond';
+    const isPast = i.datum < new Date().toISOString().slice(0,10);
+    return `<tr style="${isPast&&!isAfgerond?'opacity:0.55':''}">
+      <td>${formatDatumLang(i.datum)}</td>
+      <td style="font-weight:500;color:#25273A">${esc(i.adres)}</td>
+      <td>${esc(insp?insp.naam:'—')}</td>
+      <td>${sbadge(i.rapportStatus||'gepland')}</td>
+      <td style="text-align:right">
+        ${isAfgerond?`<button onclick="genereerRapport(${i.id})" class="act-btn act-primary">Rapport</button>`:''}
+        ${xlsBtn(i.id)}
+        <button onclick="sluitInspectiesTabel();selectInspectie(${i.id});showScreen('overview')" class="act-btn act-secondary">← Bewerken</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('alle-insp-inhoud').innerHTML = `
+    <style>
+      .ai-tbl{width:100%;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
+      .ai-tbl thead th{padding:8px 14px;font-size:10px;font-weight:600;color:#79828C;text-transform:uppercase;letter-spacing:0.5px;text-align:left;white-space:nowrap;border-bottom:1px solid #D7DED7;}
+      .ai-tbl tbody td{padding:11px 14px;font-size:13px;color:#79828C;border-bottom:0.5px solid #f0f0f0;vertical-align:middle;white-space:nowrap;}
+      .ai-tbl tbody tr:last-child td{border-bottom:none;}
+      .ai-tbl tbody tr:hover td{background:#fafafa;}
+      .act-btn{display:inline-flex;align-items:center;font-size:12px;font-weight:500;font-family:inherit;border-radius:7px;padding:5px 11px;cursor:pointer;border:none;white-space:nowrap;margin-left:4px;}
+      .act-primary{background:#097CE8;color:white;}
+      .act-secondary{background:#F5F2F0;color:#25273A;border:0.5px solid #D7DED7;}
+    </style>
+    <div style="display:flex;align-items:flex-end;padding-bottom:14px;border-bottom:1px solid #D7DED7;margin-bottom:20px">
+      <div>
+        <div style="font-size:22px;font-weight:700;letter-spacing:-0.4px;color:#25273A">Alle inspecties</div>
+        <div style="font-size:13px;color:#79828C;margin-top:3px">${sorted.length} inspecties · Savills Team Valuation</div>
+      </div>
+    </div>
+    <table class="ai-tbl">
+      <thead><tr><th>Datum</th><th>Adres</th><th>Taxateur</th><th>Status</th><th style="text-align:right">Acties</th></tr></thead>
+      <tbody>${tbody}</tbody>
+    </table>`;
+
+  document.getElementById('alle-insp-overlay').classList.remove('hidden');
+}
+
+
+// ─── NAVIGATIE ───────────────────────────────────────────────────────────────
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
+  document.getElementById('screen-'+name).classList.remove('hidden');
+  const tabNames=['home','overview','team'];
+  document.querySelectorAll('.tab-item').forEach((t,i)=>t.classList.toggle('active',tabNames[i]===name));
+  if (name==='overview') { initMap(); setTimeout(()=>{if(mapReady)map.invalidateSize();},80); renderLijst(); renderMarkers(); }
+  if (name==='team') renderTeam();
+}
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+function formatDatum(d) { if(!d) return ''; const [y,m,da]=d.split('-'); return `${+da} ${['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'][+m-1]}`; }
+function formatDatumLang(d) { if(!d) return ''; const [y,m,da]=d.split('-'); return `${+da} ${['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'][+m-1]} ${y}`; }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ─── AUTH ────────────────────────────────────────────────────────────────────
+async function checkLogin() {
+  const { data: { session } } = await db.auth.getSession();
+  if (session) {
+    document.getElementById('screen-login').style.display = 'none';
+    await laadData();
+  }
+  // else: login screen remains visible
+}
+
+async function login() {
+  const email = 'ramon.coppens@savills.nl';
+  const pw    = document.getElementById('login-pw').value;
+  const errEl = document.getElementById('login-error');
+  const btn   = document.getElementById('login-btn');
+  if (!pw) { errEl.textContent = 'Vul je wachtwoord in.'; return; }
+  btn.disabled = true; btn.textContent = 'Bezig…'; errEl.textContent = '';
+  const { error } = await db.auth.signInWithPassword({ email, password: pw });
+  if (error) {
+    errEl.textContent = 'Onjuiste gegevens. Probeer opnieuw.';
+    btn.disabled = false; btn.textContent = 'Inloggen';
+  } else {
+    document.getElementById('screen-login').style.display = 'none';
+    await laadData();
+  }
+}
+
+async function logout() {
+  await db.auth.signOut();
+  document.getElementById('login-pw').value = '';
+  document.getElementById('login-error').textContent = '';
+  document.getElementById('login-btn').disabled = false;
+  document.getElementById('login-btn').textContent = 'Inloggen';
+  document.getElementById('screen-login').style.display = 'flex';
+}
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+document.getElementById('inp-datum').value = new Date().toISOString().split('T')[0];
+checkLogin();
+</script>
+</body>
+</html>
